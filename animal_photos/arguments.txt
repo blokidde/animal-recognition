@@ -1,0 +1,36 @@
+--num int
+--searchterm string
+--directory string
+
+eerste api key + cse ID: AIzaSyDiwqITo3rm2zSu5QOipHvq2ett3suee1w, b5385fec8f2fc4deb
+tweede api key + cse ID: AIzaSyBda5-XMENTrZj3Mmn5aoBiHgTjDIw8LrU, b7d5c08ab79b54d08
+
+roe deer
+python drd.py --num 100 --searchterm "capreolus capreolus" --directory "/home/jurriaan/animalrec/animal_photos/simple_images/roe deer"
+
+wild boar
+python drd.py --num 100 --searchterm "Sus scrofa" --directory "/home/jurriaan/animalrec/animal_photos/simple_images/wild boar"
+
+red deer
+python drd.py --num 100 --searchterm "Cervus elaphus" --directory "/home/jurriaan/animalrec/animal_photos/simple_images/red deer"
+
+fox
+python drd.py --num 100 --searchterm "vulpus vulpus" --directory "/home/jurriaan/animalrec/animal_photos/simple_images/fox"
+
+badger
+python drd.py --num 100 --searchterm "Meles meles" --directory "/home/jurriaan/animalrec/animal_photos/simple_images/badger"
+
+fallow deer
+python drd.py --num 100 --searchterm "Dama dama" --directory "/home/jurriaan/animalrec/animal_photos/simple_images/fallow deer"
+
+mouflon
+Ovis gmelini
+python drd.py --num 100 --searchterm "Ovis gmelini" --directory "/home/jurriaan/animalrec/animal_photos/simple_images/mouflon"
+
+euro hare
+Lepus europaeus
+python drd.py --num 100 --searchterm "Lepus europaeus" --directory "/home/jurriaan/animalrec/animal_photos/simple_images/hare"
+
+euro rabbit
+Oryctolagus cuniculus
+python drd.py --num 100 --searchterm "Oryctolagus cuniculus" --directory "/home/jurriaan/animalrec/animal_photos/simple_images/rabbit"

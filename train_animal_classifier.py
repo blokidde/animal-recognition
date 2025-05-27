@@ -8,7 +8,7 @@ from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau, TensorB
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Train a custom classifier on your 5-class image dataset"
+        description="Train a custom classifier on your 9-class image dataset"
     )
     parser.add_argument(
         "--data_dir", "-d", type=str, required=True,
