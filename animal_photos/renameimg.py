@@ -1,39 +1,52 @@
 import os
+import argparse
 
 def rename_files_by_category(folder_path, category_name):
-    """
-    Verandert de namen van alle bestanden in een specifieke map naar een gewenst patroon,
-    bijvoorbeeld 'fox_image_1', 'fox_image_2', enz.
-
-    Parameters:
-    - folder_path: Het pad naar de map met de bestanden.
-    - category_name: De naam van de categorie (bijvoorbeeld "fox").
-    """
+    
+    # Controleer of de opgegeven map bestaat
     if not os.path.exists(folder_path):
         print(f"De map '{folder_path}' bestaat niet.")
         return
 
-    # Haal alle bestanden in de map op
+    # Haal alle bestanden op in de map (negeer submappen)
     files = [f for f in os.listdir(folder_path) if os.path.isfile(os.path.join(folder_path, f))]
 
+    # Loop door de bestanden en hernoem ze één voor één
     for index, file in enumerate(files, start=1):
-        # Bepaal de extensie van het bestand
-        file_extension = os.path.splitext(file)[1]  # Geeft de extensie zoals ".jpg"
-        
-        # Nieuwe bestandsnaam met index
+        # Bepaal de bestandsextensie (zoals .jpg of .png)
+        file_extension = os.path.splitext(file)[1]
+
+        # Stel de nieuwe bestandsnaam samen
         new_filename = f"{category_name}_image_{index}{file_extension}"
-        
-        # Oude en nieuwe volledige paden
+
+        # Volledige paden voor oud en nieuw bestand
         old_file_path = os.path.join(folder_path, file)
         new_file_path = os.path.join(folder_path, new_filename)
-        
+
         # Hernoem het bestand
         os.rename(old_file_path, new_file_path)
         print(f"'{file}' hernoemd naar '{new_filename}'")
-    
+
     print(f"Alle bestanden in '{folder_path}' zijn hernoemd.")
 
-# Gebruik de functie
-folder_path = "/home/jurriaan/animalrec/animal_photos/simple_images/wild boar"  # Vervang dit door het pad naar de map met foto's van de vos
-category_name = "wild_boar"  # De gewenste categorie (bijvoorbeeld "fox")
-rename_files_by_category(folder_path, category_name)
+def main():
+    # Command-line argumenten instellen
+    parser = argparse.ArgumentParser(description="Hernoem afbeeldingen in een map volgens een categorienaam.")
+    parser.add_argument(
+        '--folder', '-f', required=True, type=str,
+        help="Pad naar de map met afbeeldingen"
+    )
+    parser.add_argument(
+        '--category', '-c', required=True, type=str,
+        help="Naam van de categorie, bijvoorbeeld 'wild_boar'"
+    )
+
+    # Parse de argumenten
+    args = parser.parse_args()
+
+    # Voer de hernoemfunctie uit
+    rename_files_by_category(args.folder, args.category)
+
+# Zorg dat het script alleen uitgevoerd wordt als hoofdprogramma
+if __name__ == "__main__":
+    main()
