@@ -130,10 +130,10 @@ def main():
     print(header)
     print("-" * len(header))
     for r in results:
-        print(
-            f"{r['model']:<12}{r['train_time']:>12.2f}{r['size_mb']:>12.2f}{r['load_time']:>12.2f}{r['infer_time']:>12.4f}{(r['val_acc'] if r['val_acc'] is not None else 'n/a'):>10}"
-        )
-
+    val_acc = f"{r['val_acc']:.4f}" if r['val_acc'] is not None else "n/a"
+    print(
+        f"{r['model']:<12}{r['train_time']:>12.2f}{r['size_mb']:>12.2f}{r['load_time']:>12.2f}{r['infer_time']:>12.4f}{val_acc:>10}"
+    )
 
 if __name__ == "__main__":
     main()
