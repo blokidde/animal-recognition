@@ -6,7 +6,7 @@ Dit model is getraind met MobileNetV2 op een uitgebreidere dataset van 14 Europe
 
 - **Modeltype:** MobileNetV2
 - **Aantal klassen:** 14
-- **Trainingsdatum:** juni 2025
+- **Trainingsdatum:** 5 juni 2025
 - **Bestand:** `custom_mobilenet_model.h5`
 - **Afbeeldingsformaat:** 224×224 RGB
 - **Activatiefunctie laatste laag:** Softmax
