@@ -7,8 +7,8 @@ import os
 load_dotenv()
 
 # assign .env aan variables
-API_KEY = os.getenv('GCS_API_KEY1')
-CX = os.getenv('GCS_CX1')
+API_KEY = os.getenv('GCS_API_KEY2')
+CX = os.getenv('GCS_CX2')
 
 if not API_KEY or not CX:
     raise ValueError("API key of CX ontbreekt. Zorg dat GCS_API_KEY en GCS_CX in je .env bestand staan.")
