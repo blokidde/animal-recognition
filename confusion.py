@@ -37,6 +37,7 @@ disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=class_labels)
 fig, ax = plt.subplots(figsize=(12, 10))
 disp.plot(ax=ax, cmap="Blues", xticks_rotation=45)
 plt.title("Confusion Matrix")
+plt.savefig("/mnt/e/Machinelearning/new_animal_model", dpi=300, bbox_inches="tight")
 plt.show()
 
 # 6. Rapport printen
