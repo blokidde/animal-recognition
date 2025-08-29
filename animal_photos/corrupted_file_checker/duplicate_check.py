@@ -10,7 +10,7 @@ BASE_DIR = '/mnt/e/MachineLearning/new_animal_model/animal_photos/simple_images'
 CENTRAL_DUP_DIR = '/mnt/e/MachineLearning/new_animal_model/animal_photos/duplicates'
 os.makedirs(CENTRAL_DUP_DIR, exist_ok=True)
 
-THRESHOLD = 3  # Tolerantie voor hash-vergelijking
+THRESHOLD = 1  # Tolerantie voor hash-vergelijking
 
 def check_duplicates_in_folder(folder_path, category_name):
     print(f"\n🔍 Controleren op duplicaten in: {category_name}")
