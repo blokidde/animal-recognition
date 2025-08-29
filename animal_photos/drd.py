@@ -7,8 +7,8 @@ import os
 load_dotenv()
 
 # assign .env aan variables
-API_KEY = os.getenv('GCS_API_KEY3')
-CX = os.getenv('GCS_CX3')
+API_KEY = os.getenv('GCS_API_KEY1')
+CX = os.getenv('GCS_CX1')
 
 if not API_KEY or not CX:
     raise ValueError("API key of CX ontbreekt. Zorg dat GCS_API_KEY en GCS_CX in je .env bestand staan.")
@@ -47,7 +47,7 @@ search_params = {
     'safe': 'off',         # Schakel veilige zoekinstelling uit
     'fileType': 'jpg',     # Alleen JPG-afbeeldingen
     'imgType': 'photo',    # Alleen foto's
-    'imgSize': 'medium',   # Medium formaat afbeeldingen
+    'imgSize': 'large',   # Medium formaat afbeeldingen
 }
 
 # Map waar de afbeeldingen worden opgeslagen

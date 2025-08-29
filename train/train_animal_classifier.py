@@ -15,7 +15,7 @@ def parse_args():
         help="Root directory with one subfolder per class"
     )
     parser.add_argument(
-        "--model", "-m", choices=["mobilenet", "efficientnet"],
+        "--model", "-m", choices=["mobilenet", "efficientnet", "efficientnetb2", "efficientnetb3", "efficientnetv2s"],
         default="efficientnet",
         help="Base model to use (default: efficientnet)"
     )
@@ -65,8 +65,23 @@ def get_base_model(name, img_size):
             weights="imagenet", include_top=False,
             input_shape=(img_size, img_size, 3)
         )
-    else:
+    elif name == "efficientnet":
         base = tf.keras.applications.EfficientNetB0(
+            weights="imagenet", include_top=False,
+            input_shape=(img_size, img_size, 3)
+        )
+    elif name == "efficientnetb2":
+        base = tf.keras.applications.EfficientNetB2(
+            weights="imagenet", include_top=False,
+            input_shape=(img_size, img_size, 3)
+        )
+    elif name == "efficientnetb3":
+        base = tf.keras.applications.EfficientNetB3(
+            weights="imagenet", include_top=False,
+            input_shape=(img_size, img_size, 3)
+        )
+    else:  # efficientnetv2s
+        base = tf.keras.applications.EfficientNetV2S(
             weights="imagenet", include_top=False,
             input_shape=(img_size, img_size, 3)
         )
@@ -81,9 +96,9 @@ def build_model(base_model, num_classes):
     x = base_model(inputs, training=False)
     x = layers.GlobalAveragePooling2D()(x)
     x = layers.Dropout(0.5)(x)
-    x = layers.Dense(128, activation="relu")(x)
+    x = layers.Dense(128, activation="relu", kernel_regularizer=tf.keras.regularizers.l2(0.01))(x)
     x = layers.Dropout(0.3)(x)
-    outputs = layers.Dense(num_classes, activation="softmax")(x)
+    outputs = layers.Dense(num_classes, activation="softmax", kernel_regularizer=tf.keras.regularizers.l2(0.01))(x)
     return models.Model(inputs, outputs)
 
 def main():
@@ -101,7 +116,7 @@ def main():
 
     model.compile(
         optimizer=tf.keras.optimizers.Adam(learning_rate=1e-4),
-        loss="categorical_crossentropy",
+        loss=tf.keras.losses.CategoricalCrossentropy(label_smoothing=0.1),
         metrics=["accuracy"]
     )
 
