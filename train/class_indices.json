@@ -1,0 +1,22 @@
+{
+  "badger": 0,
+  "beaver": 1,
+  "brown_bear": 2,
+  "european_polecat": 3,
+  "fallow_deer": 4,
+  "fox": 5,
+  "hare": 6,
+  "lynx": 7,
+  "mallard": 8,
+  "mouflon": 9,
+  "pheasant": 10,
+  "pine_marten": 11,
+  "rabbit": 12,
+  "raccoon": 13,
+  "raccoon_dog": 14,
+  "red_deer": 15,
+  "roe_deer": 16,
+  "stone_marten": 17,
+  "wild_boar": 18,
+  "wolf": 19
+}

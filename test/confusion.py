@@ -5,7 +5,7 @@ from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, classifica
 
 # 1. Pad naar je dataset en model
 data_dir = "/mnt/e/MachineLearning/new_animal_model/animal_photos/simple_images"
-model_path = "/mnt/e/MachineLearning/new_animal_model/tested_models/working_model_25_08_25/custom_mobilenet_model.h5"  # pas aan als je andere naam hebt
+model_path = "/mnt/e/MachineLearning/new_animal_model/tested_models/working_model_29_08_25/custom_mobilenetv3large_model.h5"  # pas aan als je andere naam hebt
 
 # 2. Zelfde generator als bij training
 img_size = 224
