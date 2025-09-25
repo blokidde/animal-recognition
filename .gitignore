@@ -1,7 +1,10 @@
-/simple_images/
-animal_photos/duplicates/
-/__pycache__/
+/animal_photos/simple_images
+/animal_photos/duplicates
+/__pycache__
 /logs
 /train/logs
 /train/__pycache__
+/animal_photos/.env
+/animal_photos/extra
+
 
