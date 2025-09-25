@@ -164,12 +164,13 @@ def main():
         model.fit(train_gen, validation_data=val_gen, epochs=remaining_epochs, callbacks=callbacks)
 
     out_path_dir = f"custom_{args.model}_model"
-    model.save(out_path_dir, save_format="tf")
-    print(f"Model opgeslagen in SavedModel formaat: {out_path_dir}/")
+    out_path_file = f"custom_{args.model}_model.keras"
 
-    out_path = f"custom_{args.model}_model.h5"
-    model.save(out_path)
-    print(f"Model opgeslagen als {out_path}")
+    model.export(out_path_dir)
+    print(f"Model geëxporteerd in SavedModel formaat: {out_path_dir}/")
+
+    model.save(out_path_file)
+    print(f"Model opgeslagen als {out_path_file}")
 
 if __name__ == "__main__":
     main()

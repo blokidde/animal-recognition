@@ -1,2 +1,7 @@
-simple_images/
+/simple_images/
 animal_photos/duplicates/
+/__pycache__/
+/logs
+/train/logs
+/train/__pycache__
+
