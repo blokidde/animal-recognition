@@ -151,8 +151,8 @@ if is_cam:
                 h, w = vis.shape[:2]
                 out = cv2.VideoWriter(args.save, fourcc, 25, (w, h))
             out.write(vis)
-        cv2.imshow("YOLO -> Classify", vis)
-        if cv2.waitKey(1) & 0xFF == ord('q'): break
+        # cv2.imshow("YOLO -> Classify", vis)
+        # if cv2.waitKey(1) & 0xFF == ord('q'): break
     cap.release()
     if out: out.release()
     cv2.destroyAllWindows()
@@ -166,10 +166,10 @@ else:
             os.makedirs(os.path.dirname(args.save) or ".", exist_ok=True)
             cv2.imwrite(args.save, vis)
             print(f"Saved: {args.save}")
-        else:
-            cv2.imshow("YOLO -> Classify", vis)
-            cv2.waitKey(0)
-            cv2.destroyAllWindows()
+        # else:
+            # cv2.imshow("YOLO -> Classify", vis)
+            # cv2.waitKey(0)
+            # cv2.destroyAllWindows()
     else:
         # video
         cap = cv2.VideoCapture(src)
@@ -187,8 +187,8 @@ else:
                     os.makedirs(os.path.dirname(args.save) or ".", exist_ok=True)
                     out = cv2.VideoWriter(args.save, fourcc, 25, (w, h))
                 out.write(vis)
-            cv2.imshow("YOLO -> Classify", vis)
-            if cv2.waitKey(1) & 0xFF == ord('q'): break
+            # cv2.imshow("YOLO -> Classify", vis)
+            # if cv2.waitKey(1) & 0xFF == ord('q'): break
         cap.release()
         if out: out.release()
         cv2.destroyAllWindows()
