@@ -29,7 +29,7 @@ static constexpr int PIN_LCD_BL   = 21;    // -1 als geen backlight
 // ---- Panel resolutie (fysiek) ----
 static constexpr int LCD_HRES = 240;
 static constexpr int LCD_VRES = 320;
-static constexpr uint32_t LCD_SPI_HZ = (40u * 1000u * 1000u);  // 40 MHz
+static constexpr uint32_t LCD_SPI_HZ = (80u * 1000u * 1000u);  // 40 MHz
 
 // ---- Tekst/timing ----
 static constexpr int SCALE      = 7;   // iets kleiner dan voorheen
