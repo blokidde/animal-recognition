@@ -1,0 +1,50 @@
+{
+    "configurations": [
+        {
+            "name": "ESP32-P4",
+            "includePath": [
+                "${workspaceFolder}/embedded/src",
+                "${workspaceFolder}/embedded/include",
+                "${workspaceFolder}/embedded/lib",
+                "${workspaceFolder}/embedded/.pio/build/esp32-p4/config",
+                "/home/jurriaan/.platformio/packages/framework-espidf/components/freertos/FreeRTOS-Kernel/include",
+                "/home/jurriaan/.platformio/packages/framework-espidf/components/freertos/FreeRTOS-Kernel/portable/riscv/include",
+                "/home/jurriaan/.platformio/packages/framework-espidf/components/freertos/esp_additions/include",
+                "/home/jurriaan/.platformio/packages/framework-espidf/components/log/include",
+                "/home/jurriaan/.platformio/packages/framework-espidf/components/esp_driver_gpio/include",
+                "/home/jurriaan/.platformio/packages/framework-espidf/components/esp_driver_spi/include",
+                "/home/jurriaan/.platformio/packages/framework-espidf/components/esp_lcd/include",
+                "/home/jurriaan/.platformio/packages/framework-espidf/components/hal/include",
+                "/home/jurriaan/.platformio/packages/framework-espidf/components/hal/esp32p4/include",
+                "/home/jurriaan/.platformio/packages/framework-espidf/components/esp_common/include",
+                "/home/jurriaan/.platformio/packages/framework-espidf/components/esp_hw_support/include",
+                "/home/jurriaan/.platformio/packages/framework-espidf/components/soc/include",
+                "/home/jurriaan/.platformio/packages/framework-espidf/components/soc/esp32p4/include",
+                "/home/jurriaan/.platformio/packages/framework-espidf/components/esp_system/include",
+                "/home/jurriaan/.platformio/packages/framework-espidf/components/**"
+            ],
+            "defines": [
+                "ESP_PLATFORM",
+                "IDF_VER=\"v5.0\"",
+                "ESP32P4",
+                "CONFIG_IDF_TARGET_ESP32P4",
+                "ARDUINO_ARCH_ESP32",
+                "_GNU_SOURCE",
+                "__GNUC__=11",
+                "CONFIG_FREERTOS_HZ=1000"
+            ],
+            "compilerPath": "/home/jurriaan/.platformio/packages/toolchain-riscv32-esp/bin/riscv32-esp-elf-gcc",
+            "cStandard": "c11",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "gcc-x64",
+            "browse": {
+                "path": [
+                    "${workspaceFolder}",
+                    "/home/jurriaan/.platformio/packages/framework-espidf/components",
+                    "/home/jurriaan/.platformio/packages/toolchain-riscv32-esp/riscv32-esp-elf/include"
+                ]
+            }
+        }
+    ],
+    "version": 4
+}
