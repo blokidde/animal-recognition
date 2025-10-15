@@ -20,31 +20,32 @@ extern "C" {
 static constexpr spi_host_device_t LCD_HOST = SPI2_HOST;
 static constexpr int PIN_LCD_SCLK = 32;
 static constexpr int PIN_LCD_MOSI = 26;
-static constexpr int PIN_LCD_MISO = -1;    // write-only display
+static constexpr int PIN_LCD_MISO = -1;    // write-only
 static constexpr int PIN_LCD_CS   = 25;
 static constexpr int PIN_LCD_DC   = 27;
 static constexpr int PIN_LCD_RST  = 20;    // -1 als geen RST
 static constexpr int PIN_LCD_BL   = 21;    // -1 als geen backlight
 
-// ---- Display ----
+// ---- Panel resolutie (fysiek) ----
 static constexpr int LCD_HRES = 240;
 static constexpr int LCD_VRES = 320;
 static constexpr uint32_t LCD_SPI_HZ = (40u * 1000u * 1000u);  // 40 MHz
 
-// ---- Tekst / timing ----
-static constexpr int SCALE      = 10;  // groter/kleiner maken
+// ---- Tekst/timing ----
+static constexpr int SCALE      = 7;   // iets kleiner dan voorheen
 static constexpr int REFRESH_MS = 33;  // ~30 FPS
 
-// Oriëntatie (geen rotatie, alleen X-mirror om spiegel te corrigeren)
-static constexpr bool SWAP_XY  = false;
-static constexpr bool MIRROR_X = true;
-static constexpr bool MIRROR_Y = false;
+// ---- Oriëntatie voor LIGGEND ----
+// We draaien naar landscape met swap_xy = true.
+// Deze combinatie geeft vaak "liggend, juiste leesrichting":
+static constexpr bool ORIENT_SWAP_XY  = true;
+static constexpr bool ORIENT_MIRROR_X = true;
+static constexpr bool ORIENT_MIRROR_Y = true;
 
 // Helpers
 static inline gpio_num_t to_gpio(int pin) {
   return (pin >= 0) ? static_cast<gpio_num_t>(pin) : GPIO_NUM_NC;
 }
-
 static inline uint16_t RGB565(uint8_t r, uint8_t g, uint8_t b) {
   return (uint16_t)(((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3));
 }
@@ -59,10 +60,9 @@ static const uint8_t FONT5x7_DIGIT[10][5] = {
   {0x3C,0x4A,0x49,0x49,0x30}, {0x01,0x71,0x09,0x05,0x03},
   {0x36,0x49,0x49,0x49,0x36}, {0x06,0x49,0x49,0x29,0x1E}
 };
-static const uint8_t FONT5x7_DOT[1]   = { 0x40 };      // '.'
-static const uint8_t FONT5x7_COMMA[2] = { 0x40, 0x20 }; // ','
+static const uint8_t FONT5x7_DOT[1]   = { 0x40 };        // '.'
+static const uint8_t FONT5x7_COMMA[2] = { 0x40, 0x20 };  // ','
 
-// Breedte in pixels
 static inline int char_width(char c, int scale) {
   if (c >= '0' && c <= '9') return (5 + 1) * scale;
   if (c == '.')             return (1 + 1) * scale;
@@ -154,27 +154,32 @@ extern "C" void app_main(void)
   ESP_ERROR_CHECK(esp_lcd_panel_init(panel));
   ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel, true));
 
-  // Oriëntatie (geen rotatie, spiegel X om te fixen)
-  if (SWAP_XY) ESP_ERROR_CHECK(esp_lcd_panel_swap_xy(panel, true));
-  ESP_ERROR_CHECK(esp_lcd_panel_mirror(panel, MIRROR_X, MIRROR_Y));
+  // ---- LIGGEND instellen ----
+  ESP_ERROR_CHECK(esp_lcd_panel_swap_xy(panel, ORIENT_SWAP_XY));
+  ESP_ERROR_CHECK(esp_lcd_panel_mirror(panel, ORIENT_MIRROR_X, ORIENT_MIRROR_Y));
+  // Als de tekst tóch gespiegeld is:
+  // 1) zet ORIENT_MIRROR_X = false, ORIENT_MIRROR_Y = true
+  // 2) of laat ORIENT_SWAP_XY = true maar wissel de mirrors om
 
-  // Clear screen
-  std::vector<uint16_t> clear(LCD_HRES * 16, COLOR_BLACK); // kleine strook
-  for (int y = 0; y < LCD_VRES; y += 16) {
-    int h = (y + 16 <= LCD_VRES) ? 16 : (LCD_VRES - y);
-    esp_lcd_panel_draw_bitmap(panel, 0, y, LCD_HRES, y + h, clear.data());
+  // Logische schermmaat (na swap_xy wisselen W/H)
+  const int SCREEN_W = ORIENT_SWAP_XY ? LCD_VRES : LCD_HRES; // 320
+  const int SCREEN_H = ORIENT_SWAP_XY ? LCD_HRES : LCD_VRES; // 240
+
+  // Clear screen (in stroken)
+  std::vector<uint16_t> clear(SCREEN_W * 16, COLOR_BLACK);
+  for (int y = 0; y < SCREEN_H; y += 16) {
+    int h = (y + 16 <= SCREEN_H) ? 16 : (SCREEN_H - y);
+    esp_lcd_panel_draw_bitmap(panel, 0, y, SCREEN_W, y + h, clear.data());
   }
 
   // Timer
-  const int text_h_nom = 7 * SCALE;
   int64_t t0_us = esp_timer_get_time();
-  int last_x = 0, last_y = 0, last_w = 0, last_h = 0;
-
   std::vector<uint16_t> buf;
   char txt[32];
+  int last_x = 0, last_y = 0, last_w = 0, last_h = 0;
 
   while (true) {
-    // Nauwkeurige tijd met 2 decimalen en komma
+    // Nauwkeurige tijd, 2 decimalen en komma
     double secs = (esp_timer_get_time() - t0_us) / 1e6;
     snprintf(txt, sizeof(txt), "%.2f", secs);
     for (char* p = txt; *p; ++p) if (*p == '.') *p = ',';
@@ -182,18 +187,17 @@ extern "C" void app_main(void)
     // Render één buffer & draw in 1 call
     int w = 0, h = 0;
     render_text_to_buffer(txt, SCALE, COLOR_WHITE, COLOR_BLACK, buf, w, h);
-    if (h == 0 || w == 0) { vTaskDelay(pdMS_TO_TICKS(REFRESH_MS)); continue; }
+    if (w == 0 || h == 0) { vTaskDelay(pdMS_TO_TICKS(REFRESH_MS)); continue; }
 
-    // Centreer
-    int x = (LCD_HRES - w) / 2;
-    int y = (LCD_VRES - h) / 2;
+    // Centreer in LIGGEND scherm
+    int x = (SCREEN_W - w) / 2;
+    int y = (SCREEN_H - h) / 2;
 
-    // Overpaint vorige area in één keer (zwart), dan nieuwe tekst
+    // Vorige tekst overschrijven (zwart), dan nieuwe
     if (last_w > 0 && last_h > 0) {
       std::vector<uint16_t> black(last_w * last_h, COLOR_BLACK);
       esp_lcd_panel_draw_bitmap(panel, last_x, last_y, last_x + last_w, last_y + last_h, black.data());
     }
-
     esp_lcd_panel_draw_bitmap(panel, x, y, x + w, y + h, buf.data());
 
     last_x = x; last_y = y; last_w = w; last_h = h;
