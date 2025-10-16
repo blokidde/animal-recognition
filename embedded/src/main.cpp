@@ -26,7 +26,6 @@ static constexpr int PIN_LCD_CS   = 25;
 static constexpr int PIN_LCD_DC   = 27;
 static constexpr int PIN_LCD_RST  = 20;    // -1 als geen RST
 static constexpr int PIN_LCD_BL   = 21;    // -1 als geen backlight
-static constexpr int PIN_LCD_TE   = -1;    // <-- zet hier je TE GPIO als je 'm hebt, anders -1
 
 // ---- Panel resolutie (fysiek, controller) ----
 static constexpr int LCD_HRES = 240;
@@ -137,15 +136,6 @@ static void blit_rgb565(uint16_t* fb, int fb_w, int fb_h,
   }
 }
 
-// (Optioneel) TE-wacht: wacht op stijgende flank (VSYNC)
-// Alleen actief als PIN_LCD_TE >= 0
-static inline void wait_for_te_if_enabled() {
-  if (PIN_LCD_TE < 0) return;
-  // wacht op low -> high overgang
-  while (gpio_get_level(to_gpio(PIN_LCD_TE)) != 0) {}
-  while (gpio_get_level(to_gpio(PIN_LCD_TE)) == 0) {}
-}
-
 extern "C" void app_main(void)
 {
   // SPI bus
@@ -166,16 +156,6 @@ extern "C" void app_main(void)
     io_conf.mode = GPIO_MODE_OUTPUT;
     gpio_config(&io_conf);
     gpio_set_level(to_gpio(PIN_LCD_BL), 1);
-  }
-
-  // (Optioneel) TE-pin als input
-  if (PIN_LCD_TE >= 0) {
-    gpio_config_t te_conf{};
-    te_conf.pin_bit_mask = (1ULL << (uint64_t)PIN_LCD_TE);
-    te_conf.mode = GPIO_MODE_INPUT;
-    te_conf.pull_up_en = GPIO_PULLUP_ENABLE;
-    te_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
-    gpio_config(&te_conf);
   }
 
   // IO + panel
