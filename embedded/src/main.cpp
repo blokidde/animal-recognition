@@ -17,31 +17,31 @@ extern "C" {
 
 #define TAG "ILI9341_P4"
 
-// ---- Pins ----
+//Pins
 static constexpr spi_host_device_t LCD_HOST = SPI2_HOST;
 static constexpr int PIN_LCD_SCLK = 32;
 static constexpr int PIN_LCD_MOSI = 26;
-static constexpr int PIN_LCD_MISO = -1;    // write-only
+static constexpr int PIN_LCD_MISO = -1; // write-only
 static constexpr int PIN_LCD_CS   = 25;
 static constexpr int PIN_LCD_DC   = 27;
-static constexpr int PIN_LCD_RST  = 20;    // -1 als geen RST
-static constexpr int PIN_LCD_BL   = 21;    // -1 als geen backlight
+static constexpr int PIN_LCD_RST  = 20; // -1 als geen RST
+static constexpr int PIN_LCD_BL   = 21; // -1 als geen backlight
 
-// ---- Panel resolutie (fysiek, controller) ----
+// Panel resolutie (fysiek, controller)
 static constexpr int LCD_HRES = 240;
 static constexpr int LCD_VRES = 320;
-static constexpr uint32_t LCD_SPI_HZ = (80u * 1000u * 1000u);  // 80 MHz (mag, jouw keuze)
+static constexpr uint32_t LCD_SPI_HZ = (80u * 1000u * 1000u);  // 80 MHz
 
-// ---- Tekst/timing ----
+//Tekst/timing
 static constexpr int SCALE      = 7;   // zoals je had
 static constexpr int REFRESH_MS = 33;  // ~30 FPS
 
-// ---- Oriëntatie voor LIGGEND ----
+// Oriëntatie voor liggend scherm
 static constexpr bool ORIENT_SWAP_XY  = true;
 static constexpr bool ORIENT_MIRROR_X = true;
 static constexpr bool ORIENT_MIRROR_Y = true;
 
-// ---- Stripe (DMA) hoogte ----
+// Stripe Direct Memory Acces hoogte
 static constexpr int STRIPE_H = 80;  // 3 stroken voor 240 lijnen
 
 // Helpers
@@ -62,8 +62,8 @@ static const uint8_t FONT5x7_DIGIT[10][5] = {
   {0x3C,0x4A,0x49,0x49,0x30}, {0x01,0x71,0x09,0x05,0x03},
   {0x36,0x49,0x49,0x49,0x36}, {0x06,0x49,0x49,0x29,0x1E}
 };
-static const uint8_t FONT5x7_DOT[1]   = { 0x40 };        // '.'
-static const uint8_t FONT5x7_COMMA[2] = { 0x40, 0x20 };  // ','
+static const uint8_t FONT5x7_DOT[1]   = { 0x40 }; // '.'
+static const uint8_t FONT5x7_COMMA[2] = { 0x40, 0x20 }; // ','
 
 static inline int char_width(char c, int scale) {
   if (c >= '0' && c <= '9') return (5 + 1) * scale;
@@ -145,7 +145,7 @@ extern "C" void app_main(void)
   buscfg.miso_io_num     = PIN_LCD_MISO;
   buscfg.quadwp_io_num   = -1;
   buscfg.quadhd_io_num   = -1;
-  // Max transfer voor 320 x STRIPE_H x 2 bytes (worst-case breedte in landscape)
+  // Max transfer voor 320 x STRIPE_H x 2 bytes
   buscfg.max_transfer_sz = 320 * STRIPE_H * (int)sizeof(uint16_t);
   ESP_ERROR_CHECK(spi_bus_initialize(LCD_HOST, &buscfg, SPI_DMA_CH_AUTO));
 
@@ -163,18 +163,18 @@ extern "C" void app_main(void)
   esp_lcd_panel_io_spi_config_t io_cfg{};
   io_cfg.dc_gpio_num       = to_gpio(PIN_LCD_DC);
   io_cfg.cs_gpio_num       = to_gpio(PIN_LCD_CS);
-  io_cfg.pclk_hz           = LCD_SPI_HZ;   // 80 MHz: kan, test ook 60 MHz als je ruis ziet
+  io_cfg.pclk_hz           = LCD_SPI_HZ; // 80 MHz
   io_cfg.lcd_cmd_bits      = 8;
   io_cfg.lcd_param_bits    = 8;
   io_cfg.spi_mode          = 0;
-  io_cfg.trans_queue_depth = 16;           // dieper voor vloeiend streamen
+  io_cfg.trans_queue_depth = 16; // dieper voor vloeiend streamen
   ESP_ERROR_CHECK(esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)LCD_HOST, &io_cfg, &io_handle));
 
   esp_lcd_panel_handle_t panel = nullptr;
   esp_lcd_panel_dev_config_t panel_cfg{};
   panel_cfg.reset_gpio_num = to_gpio(PIN_LCD_RST);
-  panel_cfg.rgb_ele_order  = LCD_RGB_ELEMENT_ORDER_RGB; // 0xF800 = rood
-  panel_cfg.bits_per_pixel = 16;                        // RGB565
+  panel_cfg.rgb_ele_order  = LCD_RGB_ELEMENT_ORDER_RGB;
+  panel_cfg.bits_per_pixel = 16; // RGB565
   ESP_ERROR_CHECK(esp_lcd_new_panel_ili9341(io_handle, &panel_cfg, &panel));
 
   // Init + kleine rustperiodes
@@ -184,7 +184,7 @@ extern "C" void app_main(void)
   vTaskDelay(pdMS_TO_TICKS(120));
   ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel, true));
 
-  // ---- LIGGEND instellen ----
+  // scherm liggend instellen
   ESP_ERROR_CHECK(esp_lcd_panel_swap_xy(panel, ORIENT_SWAP_XY));
   ESP_ERROR_CHECK(esp_lcd_panel_mirror(panel, ORIENT_MIRROR_X, ORIENT_MIRROR_Y));
 
@@ -192,12 +192,12 @@ extern "C" void app_main(void)
   const int SCREEN_W = ORIENT_SWAP_XY ? LCD_VRES : LCD_HRES; // 320
   const int SCREEN_H = ORIENT_SWAP_XY ? LCD_HRES : LCD_VRES; // 240
 
-  // Framebuffers (double buffer), DMA-capable
+  // Framebuffers en Direct memory access -capable
   size_t fb_bytes = (size_t)SCREEN_W * SCREEN_H * sizeof(uint16_t);
   uint16_t* fb_front = (uint16_t*) heap_caps_malloc(fb_bytes, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
   uint16_t* fb_back  = (uint16_t*) heap_caps_malloc(fb_bytes, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
   if (!fb_front || !fb_back) {
-    // fallback: probeer PSRAM als INTERNAL krap is
+    // fallback: probeer PSRAM als Internal RAM te weinig is
     if (!fb_front) fb_front = (uint16_t*) heap_caps_malloc(fb_bytes, MALLOC_CAP_DMA | MALLOC_CAP_SPIRAM);
     if (!fb_back)  fb_back  = (uint16_t*) heap_caps_malloc(fb_bytes, MALLOC_CAP_DMA | MALLOC_CAP_SPIRAM);
   }
@@ -213,7 +213,7 @@ extern "C" void app_main(void)
   char txt[32];
 
   while (true) {
-    // --- 1) Render hele frame NAAR back-buffer (atomisch frame) ---
+    // Render hele frame naar back-buffer
     // tijdstring
     double secs = (esp_timer_get_time() - t0_us) / 1e6;
     snprintf(txt, sizeof(txt), "%.2f", secs);
@@ -231,13 +231,10 @@ extern "C" void app_main(void)
       blit_rgb565(fb_back, SCREEN_W, SCREEN_H, glyph.data(), gw, gh, x, y);
     }
 
-    // --- 2) Swap buffers ---
+    //Swap buffers
     uint16_t* tmp = fb_front; fb_front = fb_back; fb_back = tmp;
 
-    // --- 3) (Optioneel) wachten op TE (VSYNC) voor perfecte sync ---
-    wait_for_te_if_enabled();
-
-    // --- 4) In 3 dikke stroken pushen (volle breedte) ---
+    // In 3 dikke stroken pushen zodat je geen lijnen ziet
     for (int y = 0; y < SCREEN_H; y += STRIPE_H) {
       int h = (y + STRIPE_H <= SCREEN_H) ? STRIPE_H : (SCREEN_H - y);
       const uint16_t* src = fb_front + y * SCREEN_W;
