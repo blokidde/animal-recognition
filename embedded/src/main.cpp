@@ -12,6 +12,7 @@ extern "C" {
   #include "esp_lcd_panel_ops.h"
   #include "esp_lcd_io_spi.h"
   #include "esp_lcd_ili9341.h"
+  #include "esp_heap_caps.h"
 }
 
 #define TAG "ILI9341_P4"
@@ -25,22 +26,24 @@ static constexpr int PIN_LCD_CS   = 25;
 static constexpr int PIN_LCD_DC   = 27;
 static constexpr int PIN_LCD_RST  = 20;    // -1 als geen RST
 static constexpr int PIN_LCD_BL   = 21;    // -1 als geen backlight
+static constexpr int PIN_LCD_TE   = -1;    // <-- zet hier je TE GPIO als je 'm hebt, anders -1
 
-// ---- Panel resolutie (fysiek) ----
+// ---- Panel resolutie (fysiek, controller) ----
 static constexpr int LCD_HRES = 240;
 static constexpr int LCD_VRES = 320;
-static constexpr uint32_t LCD_SPI_HZ = (80u * 1000u * 1000u);  // 40 MHz
+static constexpr uint32_t LCD_SPI_HZ = (80u * 1000u * 1000u);  // 80 MHz (mag, jouw keuze)
 
 // ---- Tekst/timing ----
-static constexpr int SCALE      = 7;   // iets kleiner dan voorheen
+static constexpr int SCALE      = 7;   // zoals je had
 static constexpr int REFRESH_MS = 33;  // ~30 FPS
 
 // ---- Oriëntatie voor LIGGEND ----
-// We draaien naar landscape met swap_xy = true.
-// Deze combinatie geeft vaak "liggend, juiste leesrichting":
 static constexpr bool ORIENT_SWAP_XY  = true;
 static constexpr bool ORIENT_MIRROR_X = true;
 static constexpr bool ORIENT_MIRROR_Y = true;
+
+// ---- Stripe (DMA) hoogte ----
+static constexpr int STRIPE_H = 80;  // 3 stroken voor 240 lijnen
 
 // Helpers
 static inline gpio_num_t to_gpio(int pin) {
@@ -74,7 +77,7 @@ static int measure_text_px(const char* s, int scale) {
   int w = 0; for (const char* p = s; *p; ++p) w += char_width(*p, scale); return w;
 }
 
-// Render tekst in 1 buffer (bg gevuld), daarna één draw_bitmap → geen flikker
+// Render tekst in 1 compacte buffer
 static void render_text_to_buffer(const char* s, int scale,
                                   uint16_t fg, uint16_t bg,
                                   std::vector<uint16_t>& buf, int& out_w, int& out_h)
@@ -109,6 +112,40 @@ static void render_text_to_buffer(const char* s, int scale,
   }
 }
 
+// Blit een kleine RGB565-buffer in een groot framebuffer met clipping
+static void blit_rgb565(uint16_t* fb, int fb_w, int fb_h,
+                        const uint16_t* src, int src_w, int src_h,
+                        int dst_x, int dst_y)
+{
+  int src_x0 = 0, src_y0 = 0;
+  int dst_x0 = dst_x, dst_y0 = dst_y;
+  int w = src_w, h = src_h;
+
+  // Clipping links/boven
+  if (dst_x0 < 0) { src_x0 -= dst_x0; w += dst_x0; dst_x0 = 0; }
+  if (dst_y0 < 0) { src_y0 -= dst_y0; h += dst_y0; dst_y0 = 0; }
+
+  // Clipping rechts/onder
+  if (dst_x0 + w > fb_w) w = fb_w - dst_x0;
+  if (dst_y0 + h > fb_h) h = fb_h - dst_y0;
+  if (w <= 0 || h <= 0) return;
+
+  for (int y = 0; y < h; ++y) {
+    uint16_t* dst_line = fb + (dst_y0 + y) * fb_w + dst_x0;
+    const uint16_t* src_line = src + (src_y0 + y) * src_w + src_x0;
+    memcpy(dst_line, src_line, w * sizeof(uint16_t));
+  }
+}
+
+// (Optioneel) TE-wacht: wacht op stijgende flank (VSYNC)
+// Alleen actief als PIN_LCD_TE >= 0
+static inline void wait_for_te_if_enabled() {
+  if (PIN_LCD_TE < 0) return;
+  // wacht op low -> high overgang
+  while (gpio_get_level(to_gpio(PIN_LCD_TE)) != 0) {}
+  while (gpio_get_level(to_gpio(PIN_LCD_TE)) == 0) {}
+}
+
 extern "C" void app_main(void)
 {
   // SPI bus
@@ -118,7 +155,8 @@ extern "C" void app_main(void)
   buscfg.miso_io_num     = PIN_LCD_MISO;
   buscfg.quadwp_io_num   = -1;
   buscfg.quadhd_io_num   = -1;
-  buscfg.max_transfer_sz = LCD_HRES * 80 * (int)sizeof(uint16_t);
+  // Max transfer voor 320 x STRIPE_H x 2 bytes (worst-case breedte in landscape)
+  buscfg.max_transfer_sz = 320 * STRIPE_H * (int)sizeof(uint16_t);
   ESP_ERROR_CHECK(spi_bus_initialize(LCD_HOST, &buscfg, SPI_DMA_CH_AUTO));
 
   // Backlight
@@ -130,16 +168,26 @@ extern "C" void app_main(void)
     gpio_set_level(to_gpio(PIN_LCD_BL), 1);
   }
 
+  // (Optioneel) TE-pin als input
+  if (PIN_LCD_TE >= 0) {
+    gpio_config_t te_conf{};
+    te_conf.pin_bit_mask = (1ULL << (uint64_t)PIN_LCD_TE);
+    te_conf.mode = GPIO_MODE_INPUT;
+    te_conf.pull_up_en = GPIO_PULLUP_ENABLE;
+    te_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
+    gpio_config(&te_conf);
+  }
+
   // IO + panel
   esp_lcd_panel_io_handle_t io_handle = nullptr;
   esp_lcd_panel_io_spi_config_t io_cfg{};
   io_cfg.dc_gpio_num       = to_gpio(PIN_LCD_DC);
   io_cfg.cs_gpio_num       = to_gpio(PIN_LCD_CS);
-  io_cfg.pclk_hz           = LCD_SPI_HZ;
+  io_cfg.pclk_hz           = LCD_SPI_HZ;   // 80 MHz: kan, test ook 60 MHz als je ruis ziet
   io_cfg.lcd_cmd_bits      = 8;
   io_cfg.lcd_param_bits    = 8;
   io_cfg.spi_mode          = 0;
-  io_cfg.trans_queue_depth = 10;
+  io_cfg.trans_queue_depth = 16;           // dieper voor vloeiend streamen
   ESP_ERROR_CHECK(esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)LCD_HOST, &io_cfg, &io_handle));
 
   esp_lcd_panel_handle_t panel = nullptr;
@@ -149,58 +197,72 @@ extern "C" void app_main(void)
   panel_cfg.bits_per_pixel = 16;                        // RGB565
   ESP_ERROR_CHECK(esp_lcd_new_panel_ili9341(io_handle, &panel_cfg, &panel));
 
-  // Init + aan
+  // Init + kleine rustperiodes
   ESP_ERROR_CHECK(esp_lcd_panel_reset(panel));
+  vTaskDelay(pdMS_TO_TICKS(20));
   ESP_ERROR_CHECK(esp_lcd_panel_init(panel));
+  vTaskDelay(pdMS_TO_TICKS(120));
   ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel, true));
 
   // ---- LIGGEND instellen ----
   ESP_ERROR_CHECK(esp_lcd_panel_swap_xy(panel, ORIENT_SWAP_XY));
   ESP_ERROR_CHECK(esp_lcd_panel_mirror(panel, ORIENT_MIRROR_X, ORIENT_MIRROR_Y));
-  // Als de tekst tóch gespiegeld is:
-  // 1) zet ORIENT_MIRROR_X = false, ORIENT_MIRROR_Y = true
-  // 2) of laat ORIENT_SWAP_XY = true maar wissel de mirrors om
 
   // Logische schermmaat (na swap_xy wisselen W/H)
   const int SCREEN_W = ORIENT_SWAP_XY ? LCD_VRES : LCD_HRES; // 320
   const int SCREEN_H = ORIENT_SWAP_XY ? LCD_HRES : LCD_VRES; // 240
 
-  // Clear screen (in stroken)
-  std::vector<uint16_t> clear(SCREEN_W * 16, COLOR_BLACK);
-  for (int y = 0; y < SCREEN_H; y += 16) {
-    int h = (y + 16 <= SCREEN_H) ? 16 : (SCREEN_H - y);
-    esp_lcd_panel_draw_bitmap(panel, 0, y, SCREEN_W, y + h, clear.data());
+  // Framebuffers (double buffer), DMA-capable
+  size_t fb_bytes = (size_t)SCREEN_W * SCREEN_H * sizeof(uint16_t);
+  uint16_t* fb_front = (uint16_t*) heap_caps_malloc(fb_bytes, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+  uint16_t* fb_back  = (uint16_t*) heap_caps_malloc(fb_bytes, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+  if (!fb_front || !fb_back) {
+    // fallback: probeer PSRAM als INTERNAL krap is
+    if (!fb_front) fb_front = (uint16_t*) heap_caps_malloc(fb_bytes, MALLOC_CAP_DMA | MALLOC_CAP_SPIRAM);
+    if (!fb_back)  fb_back  = (uint16_t*) heap_caps_malloc(fb_bytes, MALLOC_CAP_DMA | MALLOC_CAP_SPIRAM);
   }
+  configASSERT(fb_front && fb_back);
+
+  // Init: zwart
+  memset(fb_front, 0, fb_bytes);
+  memset(fb_back,  0, fb_bytes);
 
   // Timer
   int64_t t0_us = esp_timer_get_time();
-  std::vector<uint16_t> buf;
+  std::vector<uint16_t> glyph;
   char txt[32];
-  int last_x = 0, last_y = 0, last_w = 0, last_h = 0;
 
   while (true) {
-    // Nauwkeurige tijd, 2 decimalen en komma
+    // --- 1) Render hele frame NAAR back-buffer (atomisch frame) ---
+    // tijdstring
     double secs = (esp_timer_get_time() - t0_us) / 1e6;
     snprintf(txt, sizeof(txt), "%.2f", secs);
     for (char* p = txt; *p; ++p) if (*p == '.') *p = ',';
 
-    // Render één buffer & draw in 1 call
-    int w = 0, h = 0;
-    render_text_to_buffer(txt, SCALE, COLOR_WHITE, COLOR_BLACK, buf, w, h);
-    if (w == 0 || h == 0) { vTaskDelay(pdMS_TO_TICKS(REFRESH_MS)); continue; }
+    // volle frame zwart
+    for (int i = 0; i < SCREEN_W * SCREEN_H; ++i) fb_back[i] = COLOR_BLACK;
 
-    // Centreer in LIGGEND scherm
-    int x = (SCREEN_W - w) / 2;
-    int y = (SCREEN_H - h) / 2;
-
-    // Vorige tekst overschrijven (zwart), dan nieuwe
-    if (last_w > 0 && last_h > 0) {
-      std::vector<uint16_t> black(last_w * last_h, COLOR_BLACK);
-      esp_lcd_panel_draw_bitmap(panel, last_x, last_y, last_x + last_w, last_y + last_h, black.data());
+    // compacte glyph renderen
+    int gw = 0, gh = 0;
+    render_text_to_buffer(txt, SCALE, COLOR_WHITE, COLOR_BLACK, glyph, gw, gh);
+    if (gw > 0 && gh > 0) {
+      int x = (SCREEN_W - gw) / 2;
+      int y = (SCREEN_H - gh) / 2;
+      blit_rgb565(fb_back, SCREEN_W, SCREEN_H, glyph.data(), gw, gh, x, y);
     }
-    esp_lcd_panel_draw_bitmap(panel, x, y, x + w, y + h, buf.data());
 
-    last_x = x; last_y = y; last_w = w; last_h = h;
+    // --- 2) Swap buffers ---
+    uint16_t* tmp = fb_front; fb_front = fb_back; fb_back = tmp;
+
+    // --- 3) (Optioneel) wachten op TE (VSYNC) voor perfecte sync ---
+    wait_for_te_if_enabled();
+
+    // --- 4) In 3 dikke stroken pushen (volle breedte) ---
+    for (int y = 0; y < SCREEN_H; y += STRIPE_H) {
+      int h = (y + STRIPE_H <= SCREEN_H) ? STRIPE_H : (SCREEN_H - y);
+      const uint16_t* src = fb_front + y * SCREEN_W;
+      ESP_ERROR_CHECK(esp_lcd_panel_draw_bitmap(panel, 0, y, SCREEN_W, y + h, src));
+    }
 
     vTaskDelay(pdMS_TO_TICKS(REFRESH_MS));
   }
