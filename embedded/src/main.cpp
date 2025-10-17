@@ -1,3 +1,6 @@
+// ESP-IDF (C++) — GC9A01 rond 240x240 SPI-display (Waveshare 1.28")
+// Gebaseerd op je vorige ILI9341-versie, maar nu met esp_lcd_gc9a01
+
 #include <stdio.h>
 #include <string.h>
 #include <vector>
@@ -11,13 +14,13 @@ extern "C" {
   #include "esp_timer.h"
   #include "esp_lcd_panel_ops.h"
   #include "esp_lcd_io_spi.h"
-  #include "esp_lcd_ili9341.h"
+  #include "esp_lcd_gc9a01.h"
   #include "esp_heap_caps.h"
 }
 
-#define TAG "ILI9341_P4"
+#define TAG "GC9A01_P4"
 
-//Pins
+// ---- Pins (laat zoals je had, mits zo bedraad) ----
 static constexpr spi_host_device_t LCD_HOST = SPI2_HOST;
 static constexpr int PIN_LCD_SCLK = 32;
 static constexpr int PIN_LCD_MOSI = 26;
@@ -27,24 +30,24 @@ static constexpr int PIN_LCD_DC   = 27;
 static constexpr int PIN_LCD_RST  = 20; // -1 als geen RST
 static constexpr int PIN_LCD_BL   = 21; // -1 als geen backlight
 
-// Panel resolutie (fysiek, controller)
+// ---- Panel resolutie (GC9A01 is 240x240) ----
 static constexpr int LCD_HRES = 240;
-static constexpr int LCD_VRES = 320;
-static constexpr uint32_t LCD_SPI_HZ = (80u * 1000u * 1000u);  // 80 MHz
+static constexpr int LCD_VRES = 240;
+static constexpr uint32_t LCD_SPI_HZ = (80u * 1000u * 1000u);  // 80 MHz (kan evt. 40–60 MHz stabieler zijn)
 
-//Tekst/timing
-static constexpr int SCALE      = 7;   // zoals je had
+// ---- Tekst/timing ----
+static constexpr int SCALE      = 7;
 static constexpr int REFRESH_MS = 33;  // ~30 FPS
 
-// Oriëntatie voor liggend scherm
-static constexpr bool ORIENT_SWAP_XY  = true;
+// Op ronde 240x240 is ‘liggend’ vs ‘staand’ visueel gelijk; start zonder spiegels/rotatie
+static constexpr bool ORIENT_SWAP_XY  = false;
 static constexpr bool ORIENT_MIRROR_X = true;
-static constexpr bool ORIENT_MIRROR_Y = true;
+static constexpr bool ORIENT_MIRROR_Y = false;
 
-// Stripe Direct Memory Acces hoogte
-static constexpr int STRIPE_H = 80;  // 3 stroken voor 240 lijnen
+// ---- DMA-strookhoogte ----
+static constexpr int STRIPE_H = 80;
 
-// Helpers
+// ---- Helpers ----
 static inline gpio_num_t to_gpio(int pin) {
   return (pin >= 0) ? static_cast<gpio_num_t>(pin) : GPIO_NUM_NC;
 }
@@ -62,8 +65,8 @@ static const uint8_t FONT5x7_DIGIT[10][5] = {
   {0x3C,0x4A,0x49,0x49,0x30}, {0x01,0x71,0x09,0x05,0x03},
   {0x36,0x49,0x49,0x49,0x36}, {0x06,0x49,0x49,0x29,0x1E}
 };
-static const uint8_t FONT5x7_DOT[1]   = { 0x40 }; // '.'
-static const uint8_t FONT5x7_COMMA[2] = { 0x40, 0x20 }; // ','
+static const uint8_t FONT5x7_DOT[1]   = { 0x40 };
+static const uint8_t FONT5x7_COMMA[2] = { 0x40, 0x20 };
 
 static inline int char_width(char c, int scale) {
   if (c >= '0' && c <= '9') return (5 + 1) * scale;
@@ -76,7 +79,6 @@ static int measure_text_px(const char* s, int scale) {
   int w = 0; for (const char* p = s; *p; ++p) w += char_width(*p, scale); return w;
 }
 
-// Render tekst in 1 compacte buffer
 static void render_text_to_buffer(const char* s, int scale,
                                   uint16_t fg, uint16_t bg,
                                   std::vector<uint16_t>& buf, int& out_w, int& out_h)
@@ -111,7 +113,6 @@ static void render_text_to_buffer(const char* s, int scale,
   }
 }
 
-// Blit een kleine RGB565-buffer in een groot framebuffer met clipping
 static void blit_rgb565(uint16_t* fb, int fb_w, int fb_h,
                         const uint16_t* src, int src_w, int src_h,
                         int dst_x, int dst_y)
@@ -120,11 +121,8 @@ static void blit_rgb565(uint16_t* fb, int fb_w, int fb_h,
   int dst_x0 = dst_x, dst_y0 = dst_y;
   int w = src_w, h = src_h;
 
-  // Clipping links/boven
   if (dst_x0 < 0) { src_x0 -= dst_x0; w += dst_x0; dst_x0 = 0; }
   if (dst_y0 < 0) { src_y0 -= dst_y0; h += dst_y0; dst_y0 = 0; }
-
-  // Clipping rechts/onder
   if (dst_x0 + w > fb_w) w = fb_w - dst_x0;
   if (dst_y0 + h > fb_h) h = fb_h - dst_y0;
   if (w <= 0 || h <= 0) return;
@@ -138,18 +136,17 @@ static void blit_rgb565(uint16_t* fb, int fb_w, int fb_h,
 
 extern "C" void app_main(void)
 {
-  // SPI bus
+  // ---- SPI bus ----
   spi_bus_config_t buscfg{};
   buscfg.sclk_io_num     = PIN_LCD_SCLK;
   buscfg.mosi_io_num     = PIN_LCD_MOSI;
   buscfg.miso_io_num     = PIN_LCD_MISO;
   buscfg.quadwp_io_num   = -1;
   buscfg.quadhd_io_num   = -1;
-  // Max transfer voor 320 x STRIPE_H x 2 bytes
-  buscfg.max_transfer_sz = 320 * STRIPE_H * (int)sizeof(uint16_t);
+  buscfg.max_transfer_sz = LCD_HRES * STRIPE_H * (int)sizeof(uint16_t); // 240 * STRIPE_H * 2
   ESP_ERROR_CHECK(spi_bus_initialize(LCD_HOST, &buscfg, SPI_DMA_CH_AUTO));
 
-  // Backlight
+  // ---- Backlight ----
   if (PIN_LCD_BL >= 0) {
     gpio_config_t io_conf{};
     io_conf.pin_bit_mask = (1ULL << (uint64_t)PIN_LCD_BL);
@@ -158,16 +155,16 @@ extern "C" void app_main(void)
     gpio_set_level(to_gpio(PIN_LCD_BL), 1);
   }
 
-  // IO + panel
+  // ---- IO + panel ----
   esp_lcd_panel_io_handle_t io_handle = nullptr;
   esp_lcd_panel_io_spi_config_t io_cfg{};
   io_cfg.dc_gpio_num       = to_gpio(PIN_LCD_DC);
   io_cfg.cs_gpio_num       = to_gpio(PIN_LCD_CS);
-  io_cfg.pclk_hz           = LCD_SPI_HZ; // 80 MHz
+  io_cfg.pclk_hz           = LCD_SPI_HZ;     // SPI klok
   io_cfg.lcd_cmd_bits      = 8;
   io_cfg.lcd_param_bits    = 8;
   io_cfg.spi_mode          = 0;
-  io_cfg.trans_queue_depth = 16; // dieper voor vloeiend streamen
+  io_cfg.trans_queue_depth = 16;
   ESP_ERROR_CHECK(esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)LCD_HOST, &io_cfg, &io_handle));
 
   esp_lcd_panel_handle_t panel = nullptr;
@@ -175,54 +172,53 @@ extern "C" void app_main(void)
   panel_cfg.reset_gpio_num = to_gpio(PIN_LCD_RST);
   panel_cfg.rgb_ele_order  = LCD_RGB_ELEMENT_ORDER_RGB;
   panel_cfg.bits_per_pixel = 16; // RGB565
-  ESP_ERROR_CHECK(esp_lcd_new_panel_ili9341(io_handle, &panel_cfg, &panel));
+  ESP_ERROR_CHECK(esp_lcd_new_panel_gc9a01(io_handle, &panel_cfg, &panel));
 
-  // Init + kleine rustperiodes
+  // Init
   ESP_ERROR_CHECK(esp_lcd_panel_reset(panel));
   vTaskDelay(pdMS_TO_TICKS(20));
   ESP_ERROR_CHECK(esp_lcd_panel_init(panel));
   vTaskDelay(pdMS_TO_TICKS(120));
   ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel, true));
 
-  // scherm liggend instellen
+  // Sommige modules hebben kleur-inversie nodig; indien kleuren “off”, zet dan:
+  // ESP_ERROR_CHECK(esp_lcd_panel_invert_color(panel, true));
+
+  // Oriëntatie (rond = vierkant oppervlak; start neutraal)
   ESP_ERROR_CHECK(esp_lcd_panel_swap_xy(panel, ORIENT_SWAP_XY));
   ESP_ERROR_CHECK(esp_lcd_panel_mirror(panel, ORIENT_MIRROR_X, ORIENT_MIRROR_Y));
 
-  // Logische schermmaat (na swap_xy wisselen W/H)
-  const int SCREEN_W = ORIENT_SWAP_XY ? LCD_VRES : LCD_HRES; // 320
-  const int SCREEN_H = ORIENT_SWAP_XY ? LCD_HRES : LCD_VRES; // 240
+  const int SCREEN_W = LCD_HRES; // 240
+  const int SCREEN_H = LCD_VRES; // 240
 
-  // Framebuffers en Direct memory access -capable
+  // ---- Framebuffers (DMA-capable) ----
   size_t fb_bytes = (size_t)SCREEN_W * SCREEN_H * sizeof(uint16_t);
   uint16_t* fb_front = (uint16_t*) heap_caps_malloc(fb_bytes, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
   uint16_t* fb_back  = (uint16_t*) heap_caps_malloc(fb_bytes, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
   if (!fb_front || !fb_back) {
-    // fallback: probeer PSRAM als Internal RAM te weinig is
     if (!fb_front) fb_front = (uint16_t*) heap_caps_malloc(fb_bytes, MALLOC_CAP_DMA | MALLOC_CAP_SPIRAM);
     if (!fb_back)  fb_back  = (uint16_t*) heap_caps_malloc(fb_bytes, MALLOC_CAP_DMA | MALLOC_CAP_SPIRAM);
   }
   configASSERT(fb_front && fb_back);
 
-  // Init: zwart
   memset(fb_front, 0, fb_bytes);
   memset(fb_back,  0, fb_bytes);
 
-  // Timer
+  // ---- Timer/tekst ----
   int64_t t0_us = esp_timer_get_time();
   std::vector<uint16_t> glyph;
   char txt[32];
 
   while (true) {
-    // Render hele frame naar back-buffer
-    // tijdstring
+    // Tijdstring
     double secs = (esp_timer_get_time() - t0_us) / 1e6;
     snprintf(txt, sizeof(txt), "%.2f", secs);
     for (char* p = txt; *p; ++p) if (*p == '.') *p = ',';
 
-    // volle frame zwart
+    // Clear backbuffer
     for (int i = 0; i < SCREEN_W * SCREEN_H; ++i) fb_back[i] = COLOR_BLACK;
 
-    // compacte glyph renderen
+    // Render compacte glyph
     int gw = 0, gh = 0;
     render_text_to_buffer(txt, SCALE, COLOR_WHITE, COLOR_BLACK, glyph, gw, gh);
     if (gw > 0 && gh > 0) {
@@ -231,10 +227,10 @@ extern "C" void app_main(void)
       blit_rgb565(fb_back, SCREEN_W, SCREEN_H, glyph.data(), gw, gh, x, y);
     }
 
-    //Swap buffers
+    // Swap
     uint16_t* tmp = fb_front; fb_front = fb_back; fb_back = tmp;
 
-    // In 3 dikke stroken pushen zodat je geen lijnen ziet
+    // Push in stroken
     for (int y = 0; y < SCREEN_H; y += STRIPE_H) {
       int h = (y + STRIPE_H <= SCREEN_H) ? STRIPE_H : (SCREEN_H - y);
       const uint16_t* src = fb_front + y * SCREEN_W;
