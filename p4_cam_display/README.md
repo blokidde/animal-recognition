@@ -1,53 +1,31 @@
-| Supported Targets | ESP32 | ESP32-C2 | ESP32-C3 | ESP32-C5 | ESP32-C6 | ESP32-C61 | ESP32-H2 | ESP32-H21 | ESP32-H4 | ESP32-P4 | ESP32-S2 | ESP32-S3 | Linux |
-| ----------------- | ----- | -------- | -------- | -------- | -------- | --------- | -------- | --------- | -------- | -------- | -------- | -------- | ----- |
+# Esp32 p4 camera with lcd screen
 
-# Hello World Example
+## To Do
+- fix error: 
+--- 0x4ff00003: _vector_table at ??:?
+MHARTID : 0x00000000
+Please enable CONFIG_ESP_SYSTEM_USE_FRAME_POINTER option to have a full backtrace.
+E (54278) task_wdt: Task watchdog got triggered. The following tasks/users did not reset the watchdog in time:
+E (54278) task_wdt:  - IDLE0 (CPU 0)
+E (54278) task_wdt: Tasks currently running:
+E (54278) task_wdt: CPU 0: main
+E (54278) task_wdt: CPU 1: IDLE1
+E (54278) task_wdt: Print CPU 0 (current core) registers
+Core  0 register dump:
+MEPC    : 0x4fc15476  RA      : 0x4000dbee  SP      : 0x4ff1b740  GP      : 0x4ff15c00
+--- 0x4fc15476: __umoddi3 in ROM
+--- 0x4000dbee: app_main at C:/Users/jurriaan/animal-recognition/p4_cam_display/main/cam_display.cpp:324
+TP      : 0x4ff1ba20  T0      : 0x4fc10cc4  T1      : 0x50000000  T2      : 0xc220a120
+--- 0x4fc10cc4: Cache_Start_L2_Cache_Preload in ROM
+S0/FP   : 0x00000005  S1      : 0x00000088  A0      : 0x000001c5  A1      : 0x00000000
+A2      : 0x00000000  A3      : 0x000001c5  A4      : 0x00000000  A5      : 0x50000000
+A6      : 0xf0000000  A7      : 0x000000f0  S2      : 0x50424752  S3      : 0x00000320
+S4      : 0x00000320  S5      : 0x4ff2cc80  S6      : 0x00001860  S7      : 0x00000000
+S8      : 0x00070800  S9      : 0x48139500  S10     : 0x4821a500  S11     : 0x0000000d
+T3      : 0x00000000  T4      : 0x00000000  T5      : 0x00000001  T6      : 0x4ff3c010
+MSTATUS : 0x00001888  MTVEC   : 0x4ff00003  MCAUSE  : 0xdeadc0de  MTVAL   : 0xdeadc0de
 
-Starts a FreeRTOS task to print "Hello World".
-
-(See the README.md file in the upper level 'examples' directory for more information about examples.)
-
-## How to use example
-
-Follow detailed instructions provided specifically for this example.
-
-Select the instructions depending on Espressif chip installed on your development board:
-
-- [ESP32 Getting Started Guide](https://docs.espressif.com/projects/esp-idf/en/stable/get-started/index.html)
-- [ESP32-S2 Getting Started Guide](https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/get-started/index.html)
-
-
-## Example folder contents
-
-The project **hello_world** contains one source file in C language [hello_world_main.c](main/hello_world_main.c). The file is located in folder [main](main).
-
-ESP-IDF projects are built using CMake. The project build configuration is contained in `CMakeLists.txt` files that provide set of directives and instructions describing the project's source files and targets (executable, library, or both).
-
-Below is short explanation of remaining files in the project folder.
-
-```
-├── CMakeLists.txt
-├── pytest_hello_world.py      Python script used for automated testing
-├── main
-│   ├── CMakeLists.txt
-│   └── hello_world_main.c
-└── README.md                  This is the file you are currently reading
-```
-
-For more information on structure and contents of ESP-IDF projects, please refer to Section [Build System](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-guides/build-system.html) of the ESP-IDF Programming Guide.
-
-## Troubleshooting
-
-* Program upload failure
-
-    * Hardware connection is not correct: run `idf.py -p PORT monitor`, and reboot your board to see if there are any output logs.
-    * The baud rate for downloading is too high: lower your baud rate in the `menuconfig` menu, and try again.
-
-## Technical support and feedback
-
-Please use the following feedback channels:
-
-* For technical queries, go to the [esp32.com](https://esp32.com/) forum
-* For a feature request or bug report, create a [GitHub issue](https://github.com/espressif/esp-idf/issues)
-
-We will get back to you as soon as possible.
+- add first AI/computer vision 
+- design a case for everything
+- get the program to work with pi cam 1.3 (without lens), now when its used its bugged
+- get faster reaction time on camera
