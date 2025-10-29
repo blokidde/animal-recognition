@@ -28,14 +28,11 @@
 static const char* TAG = "P4_CAM_GC9A01";
 
 // ==== (optioneel) board-level power enable ====
-// Heb je een GPIO die de CSI 3V3 rail aan zet? Zet die hier.
-// Weet je het niet of bestaat hij niet? Laat op -1 staan; dan gebeurt er niets.
 #ifndef CAM_PWR_EN_GPIO
 #define CAM_PWR_EN_GPIO  (-1)
 #endif
 
 // ---- LCD pins/params ----
-// Pas deze desnoods aan jouw wiring aan
 static constexpr spi_host_device_t LCD_HOST = SPI2_HOST;
 static constexpr int PIN_LCD_SCLK = 32;
 static constexpr int PIN_LCD_MOSI = 26;
@@ -67,7 +64,7 @@ static inline uint16_t pack_rgb565(int r, int g, int b) {
 }
 static inline int clip8(int x){ return x < 0 ? 0 : (x > 255 ? 255 : x); }
 
-// YUYV (YUV422) → RGB565 voor 1 pixel (x) op lijnbuffer 'line' met breedte src_w
+// YUYV (YUV422) → RGB565
 static inline uint16_t yuyv_pixel_to_rgb565(const uint8_t* line, int src_w, int x) {
     int pair_x = x & ~1;
     const uint8_t* p = line + pair_x*2; // [Y0 U Y1 V]
@@ -104,13 +101,11 @@ static constexpr const char* kDevUVC0 = "/dev/uvc0";
 #endif
 static constexpr const char* kDevFallback = "/dev/video0";
 
-// Probeer een lijst van devices te openen (eerste dat lukt wordt gebruikt)
 static int open_first_available_cam(char out_path[32])
 {
     const char* try_list[8] = {0};
     int idx = 0;
 
-    // volgorde: enabled types eerst
     #if CONFIG_EXAMPLE_ENABLE_MIPI_CSI_CAM_SENSOR
     try_list[idx++] = kDevMIPI;
     #endif
@@ -124,7 +119,6 @@ static int open_first_available_cam(char out_path[32])
     try_list[idx++] = kDevUVC0;
     #endif
 
-    // als niets enabled of niet aanwezig, probeer algemene paden
     try_list[idx++] = "/dev/mipi_csi_cam0";
     try_list[idx++] = "/dev/dvp_cam0";
     try_list[idx++] = "/dev/spi_cam0";
@@ -155,7 +149,7 @@ static void maybe_enable_cam_power_gpio(void)
         gpio_config(&io);
         gpio_set_level(to_gpio(CAM_PWR_EN_GPIO), 1);
         ESP_LOGI(TAG, "CAM_PWR_EN GPIO %d set HIGH", CAM_PWR_EN_GPIO);
-        vTaskDelay(pdMS_TO_TICKS(5)); // kleine settle
+        vTaskDelay(pdMS_TO_TICKS(5));
     } else {
         ESP_LOGI(TAG, "Geen CAM_PWR_EN GPIO ingesteld (overslaan).");
     }
@@ -166,7 +160,7 @@ extern "C" void app_main(void)
     // 0) (optioneel) power-enable
     maybe_enable_cam_power_gpio();
 
-    // 1) Init ESP-Video (maakt /dev/* aan o.b.v. jouw menuconfig)
+    // 1) Init ESP-Video
     ESP_ERROR_CHECK(example_video_init());
     ESP_LOGI(TAG, "ESP-Video initialized");
 
@@ -176,11 +170,9 @@ extern "C" void app_main(void)
     if (fd < 0) {
         ESP_LOGE(TAG,
                  "Geen video device te openen. Controleer menuconfig en HW:\n"
-                 " - Component config -> Example Video Initialization -> Select and Set Camera Sensor Interface\n"
-                 " - Zorg dat MIPI-CSI ENABLED is voor de Pi Cam (OV5647)\n"
-                 " - 'Customized Development Board' kiezen en SCCB I2C pins correct (SCL=8, SDA=7)\n"
-                 " - Camera echt op de **CSI**-connector (niet DSI/LCD)\n"
-                 " - Kabel oriëntatie en 3V3/1V8 rails aanwezig op je Waveshare Nano.");
+                 " - Example Video Initialization -> MIPI-CSI ENABLED (OV5647)\n"
+                 " - SCCB I2C pins correct (SCL=8, SDA=7)\n"
+                 " - Camera op CSI-connector, kabel oriëntatie OK.");
         vTaskDelay(portMAX_DELAY);
     }
     ESP_LOGI(TAG, "Video device: %s", used_dev);
@@ -270,7 +262,7 @@ extern "C" void app_main(void)
     esp_lcd_panel_handle_t panel = nullptr;
     esp_lcd_panel_dev_config_t panel_cfg{};
     panel_cfg.reset_gpio_num = to_gpio(PIN_LCD_RST);
-    panel_cfg.rgb_ele_order  = LCD_RGB_ELEMENT_ORDER_RGB;
+    panel_cfg.rgb_ele_order  = LCD_RGB_ELEMENT_ORDER_BGR;   // <<— GC9A01 modules gebruiken vaak BGR
     panel_cfg.bits_per_pixel = 16; // RGB565
     ESP_ERROR_CHECK(esp_lcd_new_panel_gc9a01(io_handle, &panel_cfg, &panel));
 
@@ -280,8 +272,12 @@ extern "C" void app_main(void)
     vTaskDelay(pdMS_TO_TICKS(120));
     ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel, true));
 
+    // Invert ON is vaak nodig bij GC9A01 breakout boards
+    ESP_ERROR_CHECK(esp_lcd_panel_invert_color(panel, true));
+
     ESP_ERROR_CHECK(esp_lcd_panel_swap_xy(panel, ORIENT_SWAP_XY));
     ESP_ERROR_CHECK(esp_lcd_panel_mirror(panel, ORIENT_MIRROR_X, ORIENT_MIRROR_Y));
+    ESP_ERROR_CHECK(esp_lcd_panel_set_gap(panel, 0, 0)); // expliciet 0 offset
 
     // 5) Stripe buffer (RGB565)
     size_t stripe_bytes = (size_t)LCD_W * STRIPE_H * sizeof(uint16_t);
@@ -326,10 +322,13 @@ extern "C" void app_main(void)
 
                 for (int dst_x = 0; dst_x < LCD_W; ++dst_x) {
                     uint32_t src_x = crop_x + (uint32_t)((uint64_t)dst_x * S / LCD_W);
+
                     uint16_t pix565 = is_yuyv
-                                      ? yuyv_pixel_to_rgb565(src_line_u8, src_w, (int)src_x)
-                                      : rgb565_sample(src_line_rgb565, src_w, (int)src_x, 0);
-                    out[dst_x] = pix565;
+                        ? yuyv_pixel_to_rgb565(src_line_u8, src_w, (int)src_x)
+                        : rgb565_sample(src_line_rgb565, src_w, (int)src_x, 0);
+
+                    // --- Belangrijk: byteswappen naar MSB-first voor SPI ---
+                    out[dst_x] = __builtin_bswap16(pix565);
                 }
             }
 
