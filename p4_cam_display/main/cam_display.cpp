@@ -110,24 +110,6 @@ static int open_first_available_cam(char out_path[32])
     return -1;
 }
 
-// ==== (optioneel) voeding aanzetten via GPIO ====
-static void maybe_enable_cam_power_gpio(void)
-{
-    if (CAM_PWR_EN_GPIO >= 0) {
-        gpio_config_t io{};
-        io.pin_bit_mask = (1ULL << (unsigned)CAM_PWR_EN_GPIO);
-        io.mode = GPIO_MODE_OUTPUT;
-        io.pull_down_en = GPIO_PULLDOWN_DISABLE;
-        io.pull_up_en   = GPIO_PULLUP_DISABLE;
-        gpio_config(&io);
-        gpio_set_level(to_gpio(CAM_PWR_EN_GPIO), 1);
-        ESP_LOGI(TAG, "CAM_PWR_EN GPIO %d set HIGH", CAM_PWR_EN_GPIO);
-        vTaskDelay(pdMS_TO_TICKS(5));
-    } else {
-        ESP_LOGI(TAG, "Geen CAM_PWR_EN GPIO ingesteld (overslaan).");
-    }
-}
-
 // ---------- YUYV helpers ----------
 static inline uint16_t pack_rgb565(int r, int g, int b) {
     return (uint16_t)(((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3));
@@ -152,9 +134,6 @@ static inline uint16_t yuyv_at_to_rgb565(const uint8_t* line, int src_w, int x_e
 
 extern "C" void app_main(void)
 {
-    // 0) (optioneel) power-enable
-    maybe_enable_cam_power_gpio();
-
     // 1) Init ESP-Video
     ESP_ERROR_CHECK(example_video_init());
     ESP_LOGI(TAG, "ESP-Video initialized");
@@ -175,8 +154,8 @@ extern "C" void app_main(void)
     // 3) Probeer eerst 240x240 RGB565 te krijgen
     v4l2_format set_fmt{};
     set_fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    set_fmt.fmt.pix.width        = LCD_W;
-    set_fmt.fmt.pix.height       = LCD_H;
+    set_fmt.fmt.pix.width        = 800;
+    set_fmt.fmt.pix.height       = 800;
     set_fmt.fmt.pix.pixelformat  = V4L2_PIX_FMT_RGB565;
     set_fmt.fmt.pix.field        = V4L2_FIELD_NONE;
     (void)ioctl(fd, VIDIOC_S_FMT, &set_fmt); // als dit faalt, we regelen fallback hierna
