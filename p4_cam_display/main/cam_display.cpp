@@ -1,6 +1,3 @@
-// cam_display_minimal.cpp — ESP32-P4 + OV5647 (ESP-Video) → GC9A01 240x240 SPI LCD
-// Minimal, stabiel: RGB565-only, FILL-only, DMA-sync, 60 MHz SPI, geen onnodige branches.
-
 #include <stdio.h>
 #include <string.h>
 #include <fcntl.h>
@@ -50,13 +47,13 @@ static constexpr int PIN_LCD_DC   = 27;
 static constexpr int PIN_LCD_RST  = 20; // -1 als geen RST
 static constexpr int PIN_LCD_BL   = 21; // -1 als geen backlight
 
-// Iets conservatiever dan 80 MHz
-static constexpr uint32_t LCD_SPI_HZ = (60u * 1000u * 1000u);
+// Je had 80 MHz — laten we dat behouden
+static constexpr uint32_t LCD_SPI_HZ = (80u * 1000u * 1000u);
 
 // software FILL-crop finetune (pixels in bronbeeld)
-static constexpr int CALIB_SHIFT_X = 300;   // positief => rechts
-static constexpr int CALIB_SHIFT_Y = 30;    // positief => beneden
-static constexpr float EXTRA_ZOOM  = 0.04f; // 4% extra; 0.00..0.08 aanhouden
+static constexpr int   CALIB_SHIFT_X = 300;   // positief => rechts
+static constexpr int   CALIB_SHIFT_Y = 30;    // positief => beneden
+static constexpr float EXTRA_ZOOM    = 0.04f; // 4% extra; 0.00..0.08 aanhouden
 
 // ---- helpers ----
 static inline gpio_num_t to_gpio(int pin) { return (pin >= 0) ? static_cast<gpio_num_t>(pin) : GPIO_NUM_NC; }
@@ -231,7 +228,7 @@ extern "C" void app_main(void)
     ESP_ERROR_CHECK(esp_lcd_panel_init(panel));
     vTaskDelay(pdMS_TO_TICKS(120));
     ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel, true));
-    ESP_ERROR_CHECK(esp_lcd_panel_invert_color(panel, true)); // ← meestal rustiger dan true
+    ESP_ERROR_CHECK(esp_lcd_panel_invert_color(panel, true)); // jouw huidige setting
     ESP_ERROR_CHECK(esp_lcd_panel_swap_xy(panel, false));
     ESP_ERROR_CHECK(esp_lcd_panel_mirror(panel, false, false));
     ESP_ERROR_CHECK(esp_lcd_panel_set_gap(panel, 0, 0));
@@ -263,6 +260,13 @@ extern "C" void app_main(void)
     ESP_LOGI(TAG, "FILL ROI=%d @(%d,%d) from %dx%d (zoom≈%.1f%%)", roi_size, x0, y0, src_w, src_h,
              100.0f * (float)extra / (float)base_sq);
 
+    // ===== FPS & timings =====
+    uint64_t fps_t0_us = esp_timer_get_time();
+    int      fps_frames = 0;
+    double   avg_scale_ms = 0.0;
+    double   avg_xfer_ms  = 0.0;
+    const double alpha = 0.2; // EWMA smoothing
+
     // 8) Capture + scale + push
     while (true) {
         // Dequeue
@@ -282,6 +286,8 @@ extern "C" void app_main(void)
         const uint8_t* frame = (const uint8_t*)buffers[buf.index].start;
         uint16_t* dst = fb[cur];
 
+        uint64_t t_scale_start = esp_timer_get_time();
+
         // Schalen RGB565 (nearest) van ROI → 240x240
         for (int dy=0; dy<LCD_H; ++dy) {
             int sy = y0 + lerp_idx_full(dy, LCD_H, roi_h);
@@ -294,19 +300,35 @@ extern "C" void app_main(void)
             }
         }
 
+        uint64_t t_scale_end = esp_timer_get_time();
+
         // Push + sync
+        uint64_t t_xfer_start = t_scale_end;
         ESP_ERROR_CHECK(esp_lcd_panel_draw_bitmap(panel, 0, 0, LCD_W, LCD_H, dst));
         // wacht tot DMA klaar is
-        if (!g_lcd_started) {
-            xSemaphoreTake(g_lcd_done, pdMS_TO_TICKS(50));
-            g_lcd_started = true;
-        } else {
-            xSemaphoreTake(g_lcd_done, pdMS_TO_TICKS(50));
-        }
+        xSemaphoreTake(g_lcd_done, pdMS_TO_TICKS(50));
+        uint64_t t_xfer_end = esp_timer_get_time();
 
         // Requeue capture buffer
         if (ioctl(fd, VIDIOC_QBUF, &buf) != 0) {
             ESP_LOGW(TAG, "QBUF fail: %d", errno);
+        }
+
+        // ===== update FPS & averages =====
+        double scale_ms = (t_scale_end - t_scale_start) / 1000.0;
+        double xfer_ms  = (t_xfer_end  - t_xfer_start)  / 1000.0;
+        avg_scale_ms = (avg_scale_ms == 0.0) ? scale_ms : (alpha*scale_ms + (1.0 - alpha)*avg_scale_ms);
+        avg_xfer_ms  = (avg_xfer_ms  == 0.0) ? xfer_ms  : (alpha*xfer_ms  + (1.0 - alpha)*avg_xfer_ms);
+
+        fps_frames++;
+        uint64_t now_us = t_xfer_end;
+        if (now_us - fps_t0_us >= 1000000ULL) {
+            double secs = (now_us - fps_t0_us) / 1000000.0;
+            double fps  = fps_frames / secs;
+            ESP_LOGI(TAG, "FPS: %.1f | scale: %.2f ms | xfer: %.2f ms",
+                     fps, avg_scale_ms, avg_xfer_ms);
+            fps_frames = 0;
+            fps_t0_us  = now_us;
         }
 
         cur ^= 1;
