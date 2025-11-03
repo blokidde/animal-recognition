@@ -28,15 +28,18 @@
 #include "esp_lcd_gc9a01.h"
 
 // -------- ESP-Video / V4L2 ----------
+// Provides V4L2-based capture helpers for ESP-Video example devices
 #include "example_video_common.h"
 #include <linux/videodev2.h>
 
 static const char* TAG = "P4_CAM_GC9A01_MIN_FAST_SAFE";
 
 // ===== LCD & pins =====
+// Physical LCD dimensions (GC9A01 round panel is 240x240)
 static constexpr int LCD_W = 240;
 static constexpr int LCD_H = 240;
 
+// SPI host and pin mapping for the LCD panel
 static constexpr spi_host_device_t LCD_HOST = SPI2_HOST;
 static constexpr int PIN_LCD_SCLK = 32;
 static constexpr int PIN_LCD_MOSI = 26;
@@ -46,25 +49,27 @@ static constexpr int PIN_LCD_DC   = 27;
 static constexpr int PIN_LCD_RST  = 20;
 static constexpr int PIN_LCD_BL   = 21;
 
-// SPI-klok: 80 MHz is snel en doorgaans stabiel. 100 MHz gaf errors → niet doen.
+// SPI clock: 80 MHz is fast and generally stable. 100 MHz produced errors → avoid it.
 static constexpr uint32_t LCD_SPI_HZ = (80u * 1000u * 1000u);
 
-// FILL-crop finetune
+// FILL-crop fine-tuning (software centering and slight zoom)
 static constexpr int   CALIB_SHIFT_X = 300;
 static constexpr int   CALIB_SHIFT_Y = 30;
 static constexpr float EXTRA_ZOOM    = 0.04f;
 
-// ---- GC9A01 cmds ----
+// ---- GC9A01 command set ----
 #define GC9A01_CMD_CASET 0x2A
 #define GC9A01_CMD_RASET 0x2B
 #define GC9A01_CMD_RAMWR 0x2C
 
-// ---- helpers ----
+// ---- small helpers ----
 static inline gpio_num_t to_gpio(int pin){ return (pin >= 0) ? (gpio_num_t)pin : GPIO_NUM_NC; }
 static inline uint16_t   bswap16(uint16_t v){ return (uint16_t)((v << 8) | (v >> 8)); }
 static inline int        clampi(int v,int lo,int hi){ return v<lo?lo:(v>hi?hi:v); }
 
-// ---------- LCD transfer-done sync ----------
+// ---------- LCD transfer completion sync ----------
+// We serialize full-frame transfers by keeping the queue depth at 1 and waiting
+// for a done-semaphore raised by this ISR callback. This guarantees “tear-safe” swaps.
 static SemaphoreHandle_t g_lcd_done = nullptr;
 static bool on_color_trans_done_cb(esp_lcd_panel_io_handle_t,
                                    esp_lcd_panel_io_event_data_t*,
@@ -76,6 +81,7 @@ static bool on_color_trans_done_cb(esp_lcd_panel_io_handle_t,
 }
 
 // ---------- Camera open helper ----------
+// Try a list of known video device nodes and return the first that opens.
 static int open_first_available_cam(char out_path[32])
 {
     const char* try_list[] = {
@@ -89,7 +95,7 @@ static int open_first_available_cam(char out_path[32])
 }
 
 // Build mapping: dst i in [0..outN-1] → src_start + floor((i*(srcN-1))/(outN-1))
-// (garandeert i=0→src_start en i=outN-1→src_start+srcN-1; geen off-by-one randen)
+// (guarantees i=0→src_start and i=outN-1→src_start+srcN-1; no edge off-by-ones)
 static void build_map_q16(int* map, int outN, int src_start, int srcN)
 {
     if (outN <= 1){ map[0] = src_start; return; }
@@ -100,17 +106,17 @@ static void build_map_q16(int* map, int outN, int src_start, int srcN)
 
 extern "C" void app_main(void)
 {
-    // 1) Init video
+    // 1) Initialize ESP-Video framework (V4L2 plumbing, etc.)
     ESP_ERROR_CHECK(example_video_init());
     ESP_LOGI(TAG, "ESP-Video initialized");
 
-    // 2) Open cam
+    // 2) Open the first available camera device
     char used_dev[32];
     int fd = open_first_available_cam(used_dev);
     if (fd < 0){ ESP_LOGE(TAG,"Geen /dev/videoX device gevonden."); vTaskDelay(portMAX_DELAY); }
     ESP_LOGI(TAG, "Video device: %s", used_dev);
 
-    // 3) Force RGB565 ~800x640
+    // 3) Force RGB565 at ~800x640 (fast for scaling and matches LCD color depth)
     struct v4l2_format set_fmt{}; set_fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     set_fmt.fmt.pix.width        = 800;
     set_fmt.fmt.pix.height       = 640;
@@ -132,7 +138,7 @@ extern "C" void app_main(void)
 
     ESP_LOGI(TAG, "Camera fmt: %dx%d RGB565, stride=%d", src_w, src_h, stride_bytes);
 
-    // 4) Buffers & stream
+    // 4) Request and mmap capture buffers, then start streaming
     struct v4l2_requestbuffers req{}; req.count=4; req.type=V4L2_BUF_TYPE_VIDEO_CAPTURE; req.memory=V4L2_MEMORY_MMAP;
     if (ioctl(fd, VIDIOC_REQBUFS, &req)!=0 || req.count<2){ ESP_LOGE(TAG,"REQBUFS fail (count=%u)", req.count); vTaskDelay(portMAX_DELAY); }
 
@@ -148,28 +154,32 @@ extern "C" void app_main(void)
     int type=V4L2_BUF_TYPE_VIDEO_CAPTURE;
     if (ioctl(fd, VIDIOC_STREAMON, &type)!=0){ ESP_LOGE(TAG,"STREAMON fail: %d", errno); vTaskDelay(portMAX_DELAY); }
 
-    // 5) LCD init  (queue depth = 1)  + eigen io_handle i.p.v. draw_bitmap
+    // 5) LCD init (single transfer in-flight) + custom IO handle (we send CASET/RASET/RAMWR ourselves)
     spi_bus_config_t buscfg{};
     buscfg.sclk_io_num     = PIN_LCD_SCLK;
     buscfg.mosi_io_num     = PIN_LCD_MOSI;
     buscfg.miso_io_num     = PIN_LCD_MISO;
     buscfg.quadwp_io_num   = -1;
     buscfg.quadhd_io_num   = -1;
-    // zorg dat één HELE frame in 1 transfer past:
-    buscfg.max_transfer_sz = LCD_W * LCD_H * (int)sizeof(uint16_t) + 64; // marge
+    // ensure ONE FULL frame fits in a single DMA transfer (reduces tearing risks)
+    buscfg.max_transfer_sz = LCD_W * LCD_H * (int)sizeof(uint16_t) + 64; // small margin
     ESP_ERROR_CHECK(spi_bus_initialize(LCD_HOST, &buscfg, SPI_DMA_CH_AUTO));
 
+    // Backlight GPIO, enable if present
     if (PIN_LCD_BL >= 0){
         gpio_config_t io{}; io.pin_bit_mask = (1ULL << (unsigned)PIN_LCD_BL); io.mode = GPIO_MODE_OUTPUT;
         gpio_config(&io); gpio_set_level(to_gpio(PIN_LCD_BL), 1);
     }
+    // Increase drive strength on high-speed SPI signals
     if (PIN_LCD_SCLK>=0) gpio_set_drive_capability(to_gpio(PIN_LCD_SCLK), GPIO_DRIVE_CAP_3);
     if (PIN_LCD_MOSI>=0) gpio_set_drive_capability(to_gpio(PIN_LCD_MOSI), GPIO_DRIVE_CAP_3);
     if (PIN_LCD_DC  >=0) gpio_set_drive_capability(to_gpio(PIN_LCD_DC),   GPIO_DRIVE_CAP_3);
     if (PIN_LCD_CS  >=0) gpio_set_drive_capability(to_gpio(PIN_LCD_CS),   GPIO_DRIVE_CAP_3);
 
+    // Create semaphore to wait for DMA completion (ISR gives it)
     g_lcd_done = xSemaphoreCreateBinary(); configASSERT(g_lcd_done);
 
+    // Create SPI panel IO (queue depth = 1 for strict sequencing)
     esp_lcd_panel_io_handle_t io_handle=nullptr;
     esp_lcd_panel_io_spi_config_t io_cfg{};
     io_cfg.dc_gpio_num         = to_gpio(PIN_LCD_DC);
@@ -177,28 +187,28 @@ extern "C" void app_main(void)
     io_cfg.pclk_hz             = LCD_SPI_HZ;
     io_cfg.lcd_cmd_bits        = 8;
     io_cfg.lcd_param_bits      = 8;
-    io_cfg.spi_mode            = 0;               // alternatief: 3
-    io_cfg.trans_queue_depth   = 1;               // <<< kern: exact 1 in-flight transfer
+    io_cfg.spi_mode            = 0;               // alternative: mode 3
+    io_cfg.trans_queue_depth   = 1;               // <<< core: exactly 1 in-flight transfer
     io_cfg.on_color_trans_done = on_color_trans_done_cb;
     ESP_ERROR_CHECK(esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)LCD_HOST, &io_cfg, &io_handle));
 
-    // paneel alleen voor init (we sturen zelf CASET/RASET/RAMWR)
+    // We only use a "panel" handle for initialization; pixel writes are manual via io_handle
     esp_lcd_panel_handle_t panel=nullptr;
     esp_lcd_panel_dev_config_t panel_cfg{};
     panel_cfg.reset_gpio_num = to_gpio(PIN_LCD_RST);
-    panel_cfg.rgb_ele_order  = LCD_RGB_ELEMENT_ORDER_BGR;   // vaak BGR bij GC9A01
+    panel_cfg.rgb_ele_order  = LCD_RGB_ELEMENT_ORDER_BGR;   // GC9A01 often expects BGR
     panel_cfg.bits_per_pixel = 16;
     ESP_ERROR_CHECK(esp_lcd_new_panel_gc9a01(io_handle, &panel_cfg, &panel));
 
     ESP_ERROR_CHECK(esp_lcd_panel_reset(panel)); vTaskDelay(pdMS_TO_TICKS(20));
     ESP_ERROR_CHECK(esp_lcd_panel_init(panel));  vTaskDelay(pdMS_TO_TICKS(120));
     ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel,true));
-    ESP_ERROR_CHECK(esp_lcd_panel_invert_color(panel,true)); // indien randjes: test false
+    ESP_ERROR_CHECK(esp_lcd_panel_invert_color(panel,true)); // if border artifacts: try false
     ESP_ERROR_CHECK(esp_lcd_panel_swap_xy(panel,false));
     ESP_ERROR_CHECK(esp_lcd_panel_mirror(panel,false,false));
     ESP_ERROR_CHECK(esp_lcd_panel_set_gap(panel,0,0));
 
-    // helper: per-frame volledig adresvenster (reset write pointer)
+    // Helper: set full address window every frame (resets write pointer)
     auto set_full_window = [&](void){
         uint8_t caset[4] = { 0x00, 0x00, 0x00, (uint8_t)(LCD_W-1) };
         uint8_t raset[4] = { 0x00, 0x00, 0x00, (uint8_t)(LCD_H-1) };
@@ -206,7 +216,7 @@ extern "C" void app_main(void)
         ESP_ERROR_CHECK(esp_lcd_panel_io_tx_param(io_handle, GC9A01_CMD_RASET, raset, sizeof(raset)));
     };
 
-    // 6) Framebuffers (internal RAM, DMA-capable)
+    // 6) Allocate two DMA-capable framebuffers in internal RAM (ping-pong)
     const size_t FB_PIXELS = (size_t)LCD_W * LCD_H;
     const size_t FB_BYTES  = FB_PIXELS * sizeof(uint16_t);
     uint16_t* fb[2] = {nullptr, nullptr};
@@ -216,7 +226,7 @@ extern "C" void app_main(void)
     }
     int cur = 0;
 
-    // 7) ROI bepalen (square FILL) + mapping vooraf opbouwen
+    // 7) Determine square FILL ROI and precompute X/Y mapping tables
     int base_sq  = (src_w < src_h) ? src_w : src_h;
     int extra    = (int)((float)base_sq * EXTRA_ZOOM + 0.5f);
     int roi_size = base_sq - extra; if (roi_size < 16) roi_size = 16;
@@ -237,6 +247,7 @@ extern "C" void app_main(void)
     build_map_q16(ymap, LCD_H, y0, roi_h);
 
     // ===== FPS & timings =====
+    // Exponential moving averages for scale (CPU time) and submit (command/queue time)
     uint64_t t_fps0 = esp_timer_get_time();
     int      fps_frames=0;
     double   avg_scale_ms=0.0, avg_submit_ms=0.0;
@@ -244,9 +255,9 @@ extern "C" void app_main(void)
 
     bool dma_active = false;
 
-    // 8) Loop
+    // 8) Main loop: capture → scale/copy → wait previous DMA → submit new frame → stats
     while (true) {
-        // Dequeue een frame
+        // Dequeue a captured frame
         struct v4l2_buffer buf{}; buf.type=V4L2_BUF_TYPE_VIDEO_CAPTURE; buf.memory=V4L2_MEMORY_MMAP;
         if (ioctl(fd, VIDIOC_DQBUF, &buf) != 0) {
             ESP_LOGW(TAG, "DQBUF fail: %d", errno);
@@ -261,7 +272,7 @@ extern "C" void app_main(void)
         const uint8_t* frame = (const uint8_t*)buffers[buf.index].start;
         uint16_t* dst = fb[cur];
 
-        // === Scale: ROI (RGB565) -> 240x240, snelle map ===
+        // === Scale: ROI (RGB565) -> 240x240 via precomputed maps (fast nearest) ===
         uint64_t t0 = esp_timer_get_time();
         for (int dy=0; dy<LCD_H; ++dy) {
             const int sy = ymap[dy];
@@ -269,6 +280,7 @@ extern "C" void app_main(void)
             uint16_t* out_line = dst + (size_t)dy * LCD_W;
 
             int dx = 0;
+            // Unrolled 8-pixel chunk for throughput; bswap16 matches panel endianness
             for (; dx <= LCD_W - 8; dx += 8) {
                 out_line[dx+0] = bswap16(src_line[xmap[dx+0]]);
                 out_line[dx+1] = bswap16(src_line[xmap[dx+1]]);
@@ -279,35 +291,36 @@ extern "C" void app_main(void)
                 out_line[dx+6] = bswap16(src_line[xmap[dx+6]]);
                 out_line[dx+7] = bswap16(src_line[xmap[dx+7]]);
             }
+            // Tail elements
             for (; dx < LCD_W; ++dx) {
                 out_line[dx] = bswap16(src_line[xmap[dx]]);
             }
         }
         uint64_t t1 = esp_timer_get_time();
 
-        // === Precis NU wachten op einde vorige frame, dán nieuw frame plannen ===
+        // === Precisely now: wait for previous frame to finish before queuing the next ===
         if (dma_active) {
             xSemaphoreTake(g_lcd_done, pdMS_TO_TICKS(50));
             dma_active = false;
         }
 
-        // Reset adresvenster per frame (voorkomt write-pointer drift) en start 1 grote kleurtransfer
+        // Reset address window each frame (avoids write-pointer drift), then push one full-color transfer
         set_full_window();
         ESP_ERROR_CHECK(esp_lcd_panel_io_tx_color(io_handle, GC9A01_CMD_RAMWR, dst, FB_BYTES));
-        dma_active = true; // callback komt als hele frame verstuurd is
+        dma_active = true; // callback fires when the whole frame is sent
 
         uint64_t t2 = esp_timer_get_time();
 
-        // Geef capture buffer terug
+        // Re-queue the capture buffer back to the driver
         if (ioctl(fd, VIDIOC_QBUF, &buf) != 0) { ESP_LOGW(TAG, "QBUF fail: %d", errno); }
 
-        // timings (submit is command + queue-kosten; wire-time overlapt met volgende scale)
+        // Timings: submit is command/queue cost; wire-time overlaps with next scaling step
         double scale_ms  = (t1 - t0)/1000.0;
         double submit_ms = (t2 - t1)/1000.0;
         avg_scale_ms  = (avg_scale_ms==0.0)? scale_ms  : (alpha*scale_ms  + (1.0-alpha)*avg_scale_ms);
         avg_submit_ms = (avg_submit_ms==0.0)? submit_ms : (alpha*submit_ms + (1.0-alpha)*avg_submit_ms);
 
-        // FPS
+        // FPS logging once per ~second
         fps_frames++;
         uint64_t now = t2;
         if (now - t_fps0 >= 1000000ULL){
@@ -318,6 +331,7 @@ extern "C" void app_main(void)
             fps_frames=0; t_fps0=now;
         }
 
+        // Swap framebuffer for next iteration
         cur ^= 1;
     }
 }
