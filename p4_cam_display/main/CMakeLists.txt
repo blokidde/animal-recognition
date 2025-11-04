@@ -11,6 +11,7 @@ idf_component_register(
     esp_system
     example_video_common   # <— dit is het mapje uit je zip (als component)
     esp_hw_support
+    human_face_detect
 )
 
-target_compile_options(${COMPONENT_LIB} PRIVATE -std=gnu++17)
+target_compile_features(${COMPONENT_LIB} PRIVATE cxx_std_20)
