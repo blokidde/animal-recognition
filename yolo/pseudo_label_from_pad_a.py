@@ -1,18 +1,23 @@
 import argparse
+import json
 import os
 import pandas as pd
 from pathlib import Path
 from typing import Optional
 
-CLASSES = ['badger', 'beaver', 'fallow_deer', 'fox', 'hare', 'lynx', 'mouflon', 
-           'pheasant', 'rabbit', 'raccoon', 'red_deer', 'roe_deer', 'wild_boar', 'wolf']
+DEFAULT_CLASS_INDICES = Path("train/class_indices.json")
 
-def get_class_id(species: str) -> Optional[int]:
+def load_class_ids(class_indices_path: str) -> dict[str, int]:
+    path = Path(class_indices_path)
+    if not path.exists():
+        raise FileNotFoundError(f"Class mapping not found: {path}")
+
+    with path.open("r", encoding="utf-8") as f:
+        return json.load(f)
+
+def get_class_id(species: str, class_ids: dict[str, int]) -> Optional[int]:
     """Get class ID for species name."""
-    try:
-        return CLASSES.index(species)
-    except ValueError:
-        return None
+    return class_ids.get(species)
 
 def find_image_in_dataset(image_name: str, dataset_dir: str) -> Optional[str]:
     """Find which split (train/val) contains the image."""
@@ -43,6 +48,8 @@ def write_yolo_label(label_path: str, detections: list, dry_run: bool = False) -
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--results', required=True, help='Path to results CSV file')
+    parser.add_argument('--dataset_dir', default='datasets/animals')
+    parser.add_argument('--class_indices', default=str(DEFAULT_CLASS_INDICES))
     parser.add_argument('--min_yolo_conf', type=float, default=0.25)
     parser.add_argument('--min_species_conf', type=float, default=0.6)
     parser.add_argument('--dry_run', action='store_true', default=False)
@@ -54,6 +61,7 @@ def main():
     
     # Load results
     df = pd.read_csv(args.results)
+    class_ids = load_class_ids(args.class_indices)
     
     # Filter by confidence thresholds
     filtered_df = df[
@@ -65,7 +73,7 @@ def main():
     print(f"Loaded {len(df)} detections, {len(filtered_df)} passed confidence filters")
     
     # Dataset directory (assumed YOLO structure)
-    dataset_dir = "/home/jurriaan/animalrec/datasets/animals"
+    dataset_dir = args.dataset_dir
     
     if not os.path.exists(dataset_dir):
         print(f"Warning: Dataset directory not found: {dataset_dir}")
@@ -90,7 +98,7 @@ def main():
         yolo_labels = []
         
         for _, row in group.iterrows():
-            class_id = get_class_id(row['species'])
+            class_id = get_class_id(row['species'], class_ids)
             if class_id is None:
                 print(f"Warning: Unknown species {row['species']}, skipping")
                 continue

@@ -2,12 +2,14 @@ import os
 import shutil
 import random
 import argparse
+import json
 from pathlib import Path
 from typing import List
 import yaml
 
-CLASSES = ['badger', 'beaver', 'fallow_deer', 'fox', 'hare', 'lynx', 'mouflon', 
-           'pheasant', 'rabbit', 'raccoon', 'red_deer', 'roe_deer', 'wild_boar', 'wolf']
+DEFAULT_SOURCE = Path("animal_photos/simple_images")
+DEFAULT_TARGET = Path("datasets/animals")
+DEFAULT_CLASS_INDICES = Path("train/class_indices.json")
 
 def create_directory_structure(base_path: str) -> None:
     """Create YOLO dataset directory structure."""
@@ -35,7 +37,18 @@ def get_class_images(source_dir: str, class_name: str) -> List[str]:
     
     return [str(f) for f in image_files]
 
-def split_and_copy_images(source_dir: str, target_dir: str, train_ratio: float = 0.8) -> None:
+def load_classes(source_dir: str, class_indices_path: str | None = None) -> list[str]:
+    """Load class names from class_indices.json or from source subdirectories."""
+    if class_indices_path:
+        path = Path(class_indices_path)
+        if path.exists():
+            with path.open("r", encoding="utf-8") as f:
+                class_indices = json.load(f)
+            return [name for name, _ in sorted(class_indices.items(), key=lambda item: item[1])]
+
+    return sorted(p.name for p in Path(source_dir).iterdir() if p.is_dir())
+
+def split_and_copy_images(source_dir: str, target_dir: str, classes: list[str], train_ratio: float = 0.8) -> None:
     """Split images into train/val and copy to YOLO structure."""
     random.seed(42)
     
@@ -45,7 +58,7 @@ def split_and_copy_images(source_dir: str, target_dir: str, train_ratio: float =
     total_train = 0
     total_val = 0
     
-    for class_name in CLASSES:
+    for class_name in classes:
         print(f"Processing class: {class_name}")
         
         images = get_class_images(source_dir, class_name)
@@ -77,14 +90,14 @@ def split_and_copy_images(source_dir: str, target_dir: str, train_ratio: float =
     
     print(f"\nTotal - Train: {total_train}, Val: {total_val}")
 
-def create_data_yaml(target_dir: str) -> None:
+def create_data_yaml(target_dir: str, classes: list[str]) -> None:
     """Create data.yaml file for YOLO training."""
     data = {
-        'path': target_dir,
+        'path': '.',
         'train': 'images/train',
         'val': 'images/val',
-        'nc': len(CLASSES),
-        'names': CLASSES
+        'nc': len(classes),
+        'names': classes
     }
     
     yaml_path = os.path.join(target_dir, 'data.yaml')
@@ -95,8 +108,10 @@ def create_data_yaml(target_dir: str) -> None:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--source', default='/mnt/e/MachineLearning/new_animal_model/animal_photos/simple_images')
-    parser.add_argument('--target', default='/home/jurriaan/animalrec/datasets/animals')
+    parser.add_argument('--source', default=str(DEFAULT_SOURCE))
+    parser.add_argument('--target', default=str(DEFAULT_TARGET))
+    parser.add_argument('--class_indices', default=str(DEFAULT_CLASS_INDICES))
+    parser.add_argument('--train_ratio', type=float, default=0.8)
     
     args = parser.parse_args()
     
@@ -106,15 +121,18 @@ def main():
         return
     
     print(f"Creating YOLO dataset structure in: {args.target}")
+    classes = load_classes(args.source, args.class_indices)
+    if not classes:
+        raise ValueError(f"Geen klassen gevonden in {args.source}")
     
     # Create directory structure
     create_directory_structure(args.target)
     
     # Split and copy images
-    split_and_copy_images(args.source, args.target)
+    split_and_copy_images(args.source, args.target, classes, args.train_ratio)
     
     # Create data.yaml
-    create_data_yaml(args.target)
+    create_data_yaml(args.target, classes)
     
     print("Dataset split completed!")
 

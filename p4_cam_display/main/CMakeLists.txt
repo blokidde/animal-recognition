@@ -9,9 +9,10 @@ idf_component_register(
     heap
     freertos
     esp_system
-    example_video_common   # <— dit is het mapje uit je zip (als component)
+    example_video_common
     esp_hw_support
     human_face_detect
+    esp_driver_isp
 )
 
 target_compile_features(${COMPONENT_LIB} PRIVATE cxx_std_20)

@@ -1,4 +1,5 @@
 import argparse
+import json
 import os
 import pandas as pd
 import numpy as np
@@ -10,8 +11,7 @@ from tqdm import tqdm
 import cv2
 from typing import List, Tuple, Optional
 
-CLASSES = ['badger', 'beaver', 'fallow_deer', 'fox', 'hare', 'lynx', 'mouflon', 
-           'pheasant', 'rabbit', 'raccoon', 'red_deer', 'roe_deer', 'wild_boar', 'wolf']
+DEFAULT_CLASS_INDICES = Path("train/class_indices.json")
 
 def find_crop_paths_for_image(crops_root: str, image_stem: str) -> list[str]:
     """Zoek alle crops voor een bronafbeelding (ongeacht submap/klasse)."""
@@ -32,26 +32,63 @@ def load_classifier(model_path: str) -> tf.keras.Model:
         raise FileNotFoundError(f"Classifier model not found: {model_path}")
     return tf.keras.models.load_model(model_path)
 
-def preprocess_crop(image_path: str, target_size: Tuple[int, int] = (224, 224)) -> np.ndarray:
+def load_class_names(class_indices_path: str) -> list[str]:
+    """Load model class names in prediction-index order."""
+    path = Path(class_indices_path)
+    if not path.exists():
+        raise FileNotFoundError(f"Class mapping not found: {path}")
+
+    with path.open("r", encoding="utf-8") as f:
+        class_indices = json.load(f)
+
+    return [name for name, _ in sorted(class_indices.items(), key=lambda item: item[1])]
+
+def get_preprocess_fn(name):
+    if name == "mobilenet":
+        from tensorflow.keras.applications import mobilenet_v2
+        return mobilenet_v2.preprocess_input
+    if name == "mobilenetv3large":
+        from tensorflow.keras.applications import mobilenet_v3
+        return mobilenet_v3.preprocess_input
+    if name in ["efficientnet", "efficientnetb2", "efficientnetb3"]:
+        from tensorflow.keras.applications import efficientnet
+        return efficientnet.preprocess_input
+    if name == "efficientnetv2s":
+        from tensorflow.keras.applications import efficientnet_v2
+        return efficientnet_v2.preprocess_input
+    return lambda arr: arr / 255.0
+
+def preprocess_crop(
+    image_path: str,
+    preprocess_fn,
+    target_size: Tuple[int, int] = (224, 224),
+) -> np.ndarray:
     """Preprocess crop for classification."""
     img = Image.open(image_path).convert('RGB')
     img = img.resize(target_size)
-    img_array = np.array(img) / 255.0
+    img_array = np.array(img, dtype=np.float32)
+    img_array = preprocess_fn(img_array)
     return np.expand_dims(img_array, axis=0)
 
-def classify_crops(crop_paths: List[str], model: tf.keras.Model) -> List[Tuple[str, float]]:
+def classify_crops(
+    crop_paths: List[str],
+    model: tf.keras.Model,
+    class_names: list[str],
+    preprocess_fn,
+    img_size: int,
+) -> List[Tuple[str, float]]:
     """Batch classify crops."""
     if not crop_paths:
         return []
-    
+
     batch_images = []
     for crop_path in crop_paths:
         try:
-            img = preprocess_crop(crop_path)
+            img = preprocess_crop(crop_path, preprocess_fn, (img_size, img_size))
             batch_images.append(img[0])
         except Exception as e:
             print(f"Error preprocessing {crop_path}: {e}")
-            batch_images.append(np.zeros((224, 224, 3)))
+            batch_images.append(np.zeros((img_size, img_size, 3)))
     
     batch_images = np.array(batch_images)
     predictions = model.predict(batch_images, verbose=0)
@@ -60,7 +97,7 @@ def classify_crops(crop_paths: List[str], model: tf.keras.Model) -> List[Tuple[s
     for pred in predictions:
         class_idx = np.argmax(pred)
         confidence = float(pred[class_idx])
-        species = CLASSES[class_idx]
+        species = class_names[class_idx] if class_idx < len(class_names) else "unknown"
         results.append((species, confidence))
     
     return results
@@ -90,12 +127,20 @@ def parse_yolo_results(results_dir: str, image_name: str) -> List[dict]:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--images', default='/mnt/e/MachineLearning/new_animal_model/animal_photos/simple_images')
-    parser.add_argument('--yolo_model', default='yolov8n.pt')
-    parser.add_argument('--classifier', default='/home/jurriaan/animalrec/models/animals_model_efficient.h5')
+    parser.add_argument('--images', default='animal_photos/simple_images')
+    parser.add_argument('--yolo_model', default='animal_photos/yolov8n.pt')
+    parser.add_argument('--classifier', default='train/best_mobilenetv3large.keras')
+    parser.add_argument('--class_indices', default=str(DEFAULT_CLASS_INDICES))
+    parser.add_argument(
+        '--preprocess',
+        choices=['rescale', 'mobilenet', 'mobilenetv3large', 'efficientnet', 'efficientnetb2', 'efficientnetb3', 'efficientnetv2s'],
+        default='mobilenetv3large',
+        help='Zelfde preprocessing/backbone als waarmee de classifier getraind is.'
+    )
     parser.add_argument('--imgsz', type=int, default=640)
+    parser.add_argument('--classifier_img_size', type=int, default=224)
     parser.add_argument('--conf', type=float, default=0.25)
-    parser.add_argument('--device', default='0')
+    parser.add_argument('--device', default='cpu')
     
     args = parser.parse_args()
     
@@ -108,6 +153,8 @@ def main():
     
     print("Loading classifier...")
     classifier = load_classifier(args.classifier)
+    class_names = load_class_names(args.class_indices)
+    preprocess_fn = get_preprocess_fn(args.preprocess)
     
     # Run YOLO detection
     print("Running YOLO detection...")
@@ -150,7 +197,13 @@ def main():
         
         # Classify crops
         if crop_paths:
-            classifications = classify_crops(crop_paths, classifier)
+            classifications = classify_crops(
+                crop_paths,
+                classifier,
+                class_names,
+                preprocess_fn,
+                args.classifier_img_size,
+            )
         else:
             classifications = []
         

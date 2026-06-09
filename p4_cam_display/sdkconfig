@@ -556,7 +556,7 @@ CONFIG_IDF_TOOLCHAIN_GCC=y
 CONFIG_IDF_TARGET_ARCH_RISCV=y
 CONFIG_IDF_TARGET_ARCH="riscv"
 CONFIG_IDF_TARGET="esp32p4"
-CONFIG_IDF_INIT_VERSION="5.5.1"
+CONFIG_IDF_INIT_VERSION="$IDF_INIT_VERSION"
 CONFIG_IDF_TARGET_ESP32P4=y
 CONFIG_IDF_FIRMWARE_CHIP_ID=0x0012
 
@@ -815,18 +815,6 @@ CONFIG_COMPILER_ORPHAN_SECTIONS_WARNING=y
 
 #
 # Component config
-#
-
-#
-# !!! MINIMAL_BUILD is enabled !!!
-#
-
-#
-# Only common components and those transitively required by the main component are listed
-#
-
-#
-# If a component configuration is missing, please add it to the main component's requirements
 #
 
 #
@@ -2013,8 +2001,7 @@ CONFIG_ESP_VIDEO_ENABLE_DVP_VIDEO_DEVICE=y
 # CONFIG_ESP_VIDEO_ENABLE_USB_UVC_VIDEO_DEVICE is not set
 # CONFIG_ESP_VIDEO_ENABLE_HW_H264_VIDEO_DEVICE is not set
 # CONFIG_ESP_VIDEO_ENABLE_HW_JPEG_VIDEO_DEVICE is not set
-CONFIG_ESP_VIDEO_ENABLE_ISP_VIDEO_DEVICE=y
-# CONFIG_ESP_VIDEO_ENABLE_ISP_PIPELINE_CONTROLLER is not set
+# CONFIG_ESP_VIDEO_ENABLE_ISP_VIDEO_DEVICE is not set
 
 #
 # Video Data Preprocessing

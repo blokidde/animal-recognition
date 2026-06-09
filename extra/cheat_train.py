@@ -2,18 +2,20 @@ import tensorflow as tf
 from tensorflow.keras import layers, models
 from tensorflow.keras.applications import MobileNetV2
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
-import os
+import argparse
 
-# Pad naar je dataset
-DATA_DIR = "/mnt/c/Users/jurriaan/MachineLearning/animal_photos/simple_images"
 IMG_SIZE = 224
 BATCH_SIZE = 64
+
+parser = argparse.ArgumentParser(description="Snelle overfit-test op 1 batch.")
+parser.add_argument("--data_dir", default="animal_photos/simple_images")
+args = parser.parse_args()
 
 # Data generator ZONDER augmentatie
 datagen = ImageDataGenerator(rescale=1./255, validation_split=0.0)
 
 train_gen = datagen.flow_from_directory(
-    DATA_DIR,
+    args.data_dir,
     target_size=(IMG_SIZE, IMG_SIZE),
     batch_size=BATCH_SIZE,
     class_mode="categorical",

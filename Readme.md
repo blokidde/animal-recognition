@@ -12,10 +12,10 @@ python3 drd.py --num 100 --searchterm "red fox" --directory ./animal_photos/simp
 Zorg dat je een aparte submap gebruikt voor elke diersoort.
 
 ## Duplicaten verwijderen
-Gebruik duplicates_check.py om vergelijkbare afbeeldingen te detecteren en te verplaatsen:
+Gebruik duplicate_check.py om vergelijkbare afbeeldingen te detecteren en te verplaatsen:
 
 ```bash
-python duplicates_check.py
+python animal_photos/duplicate_check.py --base_dir animal_photos/simple_images --duplicates_dir animal_photos/duplicates
 Gebruikt perceptuele hashing
 ```
 
@@ -25,10 +25,37 @@ Duplicaten worden verplaatst naar de submap duplicates.
 Gebruik balancing_check.py om te zien hoeveel afbeeldingen er per klasse zijn:
 
 ```bash
-python balancing_check.py
+python animal_photos/balancing_check.py --base_dir animal_photos/simple_images
 ```
 
 Dit helpt je om onevenwichtige datasets te herkennen voordat je gaat trainen.
+
+## Datasetbronnen
+Voor dit project heb je echte dierfoto's nodig, geen sporen, uitwerpselen of lege camera-trapbeelden. Goede startpunten:
+
+- WildVision47: relatief eenvoudige Kaggle-dataset met 47 wild-dierklassen.
+- Animal Dataset with 15 Classes: Kaggle-dataset met o.a. deer, rabbit en wild boar.
+- LILA North American Camera Trap Images: grote camera-trap dataset met soortlabels, maar filter `empty` expliciet weg.
+- LILA MegaDetector boxes: handig om alleen crops met een gedetecteerd dier te gebruiken.
+- iNaturalist 2021 mini: groot en fijnmazig, maar filter op diergroepen/soorten die je echt nodig hebt.
+
+Sla de uiteindelijke selectie lokaal op als:
+
+```text
+animal_photos/simple_images/
+  wild_boar/
+  red_deer/
+  roe_deer/
+  fox/
+```
+
+Gebruik daarna:
+
+```bash
+python animal_photos/file_checker.py --dataset_path animal_photos/simple_images
+python animal_photos/duplicate_check.py --base_dir animal_photos/simple_images --duplicates_dir animal_photos/duplicates
+python animal_photos/balancing_check.py --base_dir animal_photos/simple_images
+```
 
 ## Bestanden hernoemen per categorie
 Gebruik renameimg.py om alle afbeeldingsbestanden in een specifieke map automatisch te hernoemen naar een consistent formaat: <categorie>_image_<nummer>.<extensie>. Dit helpt om je dataset overzichtelijk en bruikbaar te maken voor training.

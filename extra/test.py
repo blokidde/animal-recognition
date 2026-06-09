@@ -1,4 +1,4 @@
-# python3 test.py --yolo_model yolo11n.pt --cls_model /mnt/e/MachineLearning/new_animal_model/tested_models/working_model_1_10_25/custom_mobilenetv3large_model.keras --data_dir /mnt/e/MachineLearning/new_animal_model/animal_photos/simple_images --source /mnt/e/MachineLearning/new_animal_model/zwijnen_close.mp4 --save /mnt/e/MachineLearning/new_animal_model/zwijnen_close_out.mp4 --img_size 224 --conf 0.25 --iou 0.5 --margin 0.1 --min_side 64 --preprocess mobilenet_v3
+# python extra/test.py --yolo_model extra/yolo11n.pt --cls_model tested_models/working_model_1_10_25/custom_mobilenetv3large_model.keras --data_dir animal_photos/simple_images --source zwijnen_close.mp4 --save zwijnen_close_out.mp4 --img_size 224 --conf 0.25 --iou 0.5 --margin 0.1 --min_side 64 --preprocess mobilenet_v3
 #!/usr/bin/env python3
 import argparse, os, numpy as np, cv2, tensorflow as tf
 from ultralytics import YOLO
