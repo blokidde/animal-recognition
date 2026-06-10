@@ -87,6 +87,54 @@ static bool on_color_trans_done_cb(esp_lcd_panel_io_handle_t,
     return hpw == pdTRUE;
 }
 
+static void requeue_camera_buffer(int fd, struct v4l2_buffer *buf)
+{
+    if (ioctl(fd, VIDIOC_QBUF, buf) != 0)
+    {
+        ESP_LOGW(TAG, "QBUF fail: %d", errno);
+    }
+}
+
+static bool dequeue_latest_frame(int fd, struct v4l2_buffer *out)
+{
+    bool have_frame = false;
+
+    while (true)
+    {
+        struct v4l2_buffer candidate{};
+        candidate.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+        candidate.memory = V4L2_MEMORY_MMAP;
+
+        if (ioctl(fd, VIDIOC_DQBUF, &candidate) != 0)
+        {
+            if (errno == EAGAIN || errno == EWOULDBLOCK)
+            {
+                if (have_frame)
+                    return true;
+
+                vTaskDelay(1);
+                continue;
+            }
+
+            ESP_LOGW(TAG, "DQBUF fail: %d", errno);
+            vTaskDelay(1);
+            return false;
+        }
+
+        if (!(candidate.flags & V4L2_BUF_FLAG_DONE))
+        {
+            requeue_camera_buffer(fd, &candidate);
+            continue;
+        }
+
+        if (have_frame)
+            requeue_camera_buffer(fd, out);
+
+        *out = candidate;
+        have_frame = true;
+    }
+}
+
 // ---------- Camera open helper ----------
 static int open_first_available_cam(char out_path[32])
 {
@@ -94,7 +142,7 @@ static int open_first_available_cam(char out_path[32])
         "/dev/mipi_csi_cam0", "/dev/dvp_cam0", "/dev/spi_cam0", "/dev/uvc0", "/dev/video0"};
     for (size_t i = 0; i < sizeof(try_list) / sizeof(try_list[0]); ++i)
     {
-        int fd = open(try_list[i], O_RDWR);
+        int fd = open(try_list[i], O_RDWR | O_NONBLOCK);
         if (fd >= 0)
         {
             strncpy(out_path, try_list[i], 31);
@@ -186,8 +234,20 @@ static void downscale_rgb565_to_rgb888(const uint16_t *src_rgb565, int srcW, int
 {
     static int xmap[320];
     static int ymap[320];
-    build_map_q16(xmap, detW, 0, srcW);
-    build_map_q16(ymap, detH, 0, srcH);
+    static int cached_srcW = -1;
+    static int cached_srcH = -1;
+    static int cached_detW = -1;
+    static int cached_detH = -1;
+
+    if (cached_srcW != srcW || cached_srcH != srcH || cached_detW != detW || cached_detH != detH)
+    {
+        build_map_q16(xmap, detW, 0, srcW);
+        build_map_q16(ymap, detH, 0, srcH);
+        cached_srcW = srcW;
+        cached_srcH = srcH;
+        cached_detW = detW;
+        cached_detH = detH;
+    }
 
     int di = 0;
     for (int dy = 0; dy < detH; ++dy)
@@ -195,7 +255,7 @@ static void downscale_rgb565_to_rgb888(const uint16_t *src_rgb565, int srcW, int
         const uint16_t *srow = src_rgb565 + (size_t)ymap[dy] * srcW;
         for (int dx = 0; dx < detW; ++dx)
         {
-            uint16_t p = srow[xmap[dx]];
+            uint16_t p = bswap16(srow[xmap[dx]]);
             int r = (p >> 11) & 0x1F;
             r = (r * 255 + 15) / 31;
             int g = (p >> 5) & 0x3F;
@@ -257,7 +317,7 @@ extern "C" void app_main(void)
 
     // 4) MMAP buffers + STREAMON
     struct v4l2_requestbuffers req{};
-    req.count = 4;
+    req.count = 2;
     req.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     req.memory = V4L2_MEMORY_MMAP;
     if (ioctl(fd, VIDIOC_REQBUFS, &req) != 0 || req.count < 2)
@@ -416,7 +476,9 @@ extern "C" void app_main(void)
     // cache
     std::vector<dl::detect::result_t> last_faces;
     const int DETECT_EVERY_N = 5;
-    int detect_tick = 0;
+    int detect_countdown = 0;
+    int yield_countdown = 30;
+    last_faces.reserve(8);
 
     // ===== FPS & timings =====
     uint64_t t_fps0 = esp_timer_get_time();
@@ -431,19 +493,8 @@ extern "C" void app_main(void)
     {
         // Dequeue een frame
         struct v4l2_buffer buf{};
-        buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-        buf.memory = V4L2_MEMORY_MMAP;
-        if (ioctl(fd, VIDIOC_DQBUF, &buf) != 0)
-        {
-            ESP_LOGW(TAG, "DQBUF fail: %d", errno);
-            vTaskDelay(pdMS_TO_TICKS(1));
+        if (!dequeue_latest_frame(fd, &buf))
             continue;
-        }
-        if (!(buf.flags & V4L2_BUF_FLAG_DONE))
-        {
-            (void)ioctl(fd, VIDIOC_QBUF, &buf);
-            continue;
-        }
 
         const uint8_t *frame = (const uint8_t *)buffers[buf.index].start;
         uint16_t *dst = fb[cur];
@@ -476,8 +527,10 @@ extern "C" void app_main(void)
         uint64_t t1 = esp_timer_get_time();
 
         // === Face detect 1x per N frames ===
-        if ((detect_tick++ % DETECT_EVERY_N) == 0)
+        if (detect_countdown <= 0)
         {
+            detect_countdown = DETECT_EVERY_N;
+
             // 240x240 RGB565 (dst) → 160x120 RGB888 (det_rgb)
             downscale_rgb565_to_rgb888(dst, LCD_W, LCD_H, det_rgb, DET_W, DET_H);
 
@@ -492,6 +545,7 @@ extern "C" void app_main(void)
             auto faces_list = face_det.run(det_img);
             last_faces.assign(faces_list.begin(), faces_list.end()); // list → vector cache
         }
+        --detect_countdown;
 
         // === Boxes tekenen op 240x240 ===
         const uint16_t COL_BOX = rgb565_swapped(255, 32, 32); // rood
@@ -514,7 +568,12 @@ extern "C" void app_main(void)
         // === DMA submit ===
         if (dma_active)
         {
-            xSemaphoreTake(g_lcd_done, pdMS_TO_TICKS(50));
+            if (xSemaphoreTake(g_lcd_done, pdMS_TO_TICKS(100)) != pdTRUE)
+            {
+                ESP_LOGW(TAG, "LCD DMA timeout; frame skipped");
+                requeue_camera_buffer(fd, &buf);
+                continue;
+            }
             dma_active = false;
         }
         set_full_window();
@@ -524,10 +583,7 @@ extern "C" void app_main(void)
         uint64_t t2 = esp_timer_get_time();
 
         // buffer terug naar driver
-        if (ioctl(fd, VIDIOC_QBUF, &buf) != 0)
-        {
-            ESP_LOGW(TAG, "QBUF fail: %d", errno);
-        }
+        requeue_camera_buffer(fd, &buf);
 
         // timings / FPS
         double scale_ms = (t1 - t0) / 1000.0;
@@ -545,6 +601,12 @@ extern "C" void app_main(void)
                      fps, avg_scale_ms, avg_submit_ms, DETECT_EVERY_N);
             fps_frames = 0;
             t_fps0 = now;
+        }
+
+        if (--yield_countdown <= 0)
+        {
+            yield_countdown = 30;
+            vTaskDelay(1);
         }
 
         cur ^= 1;
