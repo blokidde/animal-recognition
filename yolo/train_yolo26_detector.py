@@ -41,6 +41,8 @@ class SplitCounts:
     species: str
     class_id: int
     train: int
+    train_original: int
+    train_oversampled: int
     val: int
     test: int
     total: int
@@ -157,6 +159,25 @@ def place_file(source: Path, destination: Path, link_method: str) -> None:
     shutil.copy2(source, destination)
 
 
+def write_detection_sample(
+    source_path: Path,
+    image_path: Path,
+    label_path: Path,
+    class_id: int,
+    link_method: str,
+) -> None:
+    place_file(source_path, image_path, link_method)
+    # The DeepFaune crop already contains the animal bbox, so the detector label is the full crop.
+    label_path.write_text(f"{class_id} 0.5 0.5 1.0 1.0\n", encoding="utf-8")
+
+
+def get_oversample_target(config: dict[str, Any], train_counts: dict[str, int]) -> int:
+    configured = optional_value(config, "oversample_target_train_images")
+    if configured is not None:
+        return int(configured)
+    return max(train_counts.values()) if train_counts else 0
+
+
 def write_data_yaml(prepared_root: Path, class_names: list[str]) -> Path:
     data_yaml_path = prepared_root / "data.yaml"
     data = {
@@ -180,6 +201,8 @@ def prepare_detection_dataset(config: dict[str, Any]) -> Path:
     seed = int(config.get("seed", 42))
     link_method = str(config.get("link_method", "hardlink"))
     regenerate = bool(config.get("regenerate_dataset", False))
+    oversample_train_classes = bool(config.get("oversample_train_classes", True))
+    oversample_max_extra_copies = int(config.get("oversample_max_extra_copies", 5))
 
     if not source_root.exists():
         raise FileNotFoundError(f"Source dataset does not exist: {source_root}")
@@ -200,16 +223,31 @@ def prepare_detection_dataset(config: dict[str, Any]) -> Path:
 
     class_names = sorted(species_images)
     class_ids = {species: class_id for class_id, species in enumerate(class_names)}
+    split_plan: dict[str, tuple[list[Path], list[Path], list[Path]]] = {}
     rng = random.Random(seed)
-    counts: list[SplitCounts] = []
-    manifest_rows: list[dict[str, str | int]] = []
 
     for species in class_names:
         images = species_images[species][:]
         rng.shuffle(images)
-        train_images, val_images, test_images = split_images(images, train_ratio, val_ratio)
+        split_plan[species] = split_images(images, train_ratio, val_ratio)
+
+    train_counts = {species: len(splits[0]) for species, splits in split_plan.items()}
+    oversample_target = get_oversample_target(config, train_counts) if oversample_train_classes else 0
+    logging.info(
+        "Train oversampling: enabled=%s target=%s max_extra_copies=%s",
+        oversample_train_classes,
+        oversample_target,
+        oversample_max_extra_copies,
+    )
+
+    counts: list[SplitCounts] = []
+    manifest_rows: list[dict[str, str | int]] = []
+
+    for species in class_names:
+        train_images, val_images, test_images = split_plan[species]
         split_map = {"train": train_images, "val": val_images, "test": test_images}
         class_id = class_ids[species]
+        oversampled_count = 0
 
         for split_name, split_files in split_map.items():
             image_dir = prepared_root / "images" / split_name
@@ -221,9 +259,7 @@ def prepare_detection_dataset(config: dict[str, Any]) -> Path:
                 image_name = output_image_name(species, source_path)
                 image_path = image_dir / image_name
                 label_path = label_dir / f"{Path(image_name).stem}.txt"
-                place_file(source_path, image_path, link_method)
-                # The DeepFaune crop already contains the animal bbox, so the detector label is the full crop.
-                label_path.write_text(f"{class_id} 0.5 0.5 1.0 1.0\n", encoding="utf-8")
+                write_detection_sample(source_path, image_path, label_path, class_id, link_method)
                 manifest_rows.append(
                     {
                         "split": split_name,
@@ -235,24 +271,54 @@ def prepare_detection_dataset(config: dict[str, Any]) -> Path:
                     }
                 )
 
+        if oversample_train_classes and train_images and len(train_images) < oversample_target:
+            max_extra = len(train_images) * max(0, oversample_max_extra_copies)
+            needed = min(oversample_target - len(train_images), max_extra)
+            train_image_dir = prepared_root / "images" / "train"
+            train_label_dir = prepared_root / "labels" / "train"
+            for oversample_index in range(needed):
+                source_path = rng.choice(train_images)
+                original_name = output_image_name(species, source_path)
+                image_stem = Path(original_name).stem
+                image_name = f"{image_stem}__os{oversample_index + 1:04d}{source_path.suffix.lower()}"
+                image_path = train_image_dir / image_name
+                label_path = train_label_dir / f"{Path(image_name).stem}.txt"
+                write_detection_sample(source_path, image_path, label_path, class_id, link_method)
+                manifest_rows.append(
+                    {
+                        "split": "train",
+                        "species": species,
+                        "class_id": class_id,
+                        "source_path": str(source_path),
+                        "image_path": str(image_path),
+                        "label_path": str(label_path),
+                        "oversampled": 1,
+                    }
+                )
+            oversampled_count = needed
+
         counts.append(
             SplitCounts(
                 species=species,
                 class_id=class_id,
-                train=len(train_images),
+                train=len(train_images) + oversampled_count,
+                train_original=len(train_images),
+                train_oversampled=oversampled_count,
                 val=len(val_images),
                 test=len(test_images),
-                total=len(images),
+                total=len(species_images[species]),
             )
         )
         logging.info(
-            "%s: class_id=%s train=%s val=%s test=%s total=%s",
+            "%s: class_id=%s train=%s original_train=%s oversampled=%s val=%s test=%s total=%s",
             species,
             class_id,
+            len(train_images) + oversampled_count,
             len(train_images),
+            oversampled_count,
             len(val_images),
             len(test_images),
-            len(images),
+            len(species_images[species]),
         )
 
     (metadata_dir / "split_counts.json").write_text(

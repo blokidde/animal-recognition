@@ -7,7 +7,7 @@ prepared_root: D:\datasets\animal_alive_yolo26_det_fullbox
 
 # Rebuild the prepared YOLO detection dataset from scratch.
 # Leave false for normal reruns; set true after changing split ratios or source data.
-regenerate_dataset: false
+regenerate_dataset: true
 link_method: hardlink
 
 train_ratio: 0.70
@@ -15,15 +15,19 @@ val_ratio: 0.15
 test_ratio: 0.15
 seed: 42
 
+# Balance class weight in training by duplicating minority-class train images.
+# Validation/test are not oversampled, so metrics stay honest.
+oversample_train_classes: true
+oversample_target_train_images: 350
+oversample_max_extra_copies: 5
 # Normal detection checkpoint, not -seg and not -cls.
 model_name: yolo26n.pt
 
 # Training settings, based on the style of the studio project YOLO runs.
 epochs: 100
-patience: 25
-batch_size: 16
-image_size: 512
-num_workers: 4
+patience: 64
+image_size: 640
+num_workers: 5
 
 # Set device to 0 for GPU, cpu for CPU, or "" for Ultralytics auto.
 device: 0
