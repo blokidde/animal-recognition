@@ -1,0 +1,56 @@
+# YOLO26 normal detection training on the DeepFaune-cropped animal dataset.
+# Each cropped image gets one YOLO bbox label covering the full image:
+# <class_id> 0.5 0.5 1.0 1.0
+
+source_root: D:\datasets\animal_alive_deepfaune_top500\cropped_dataset
+prepared_root: D:\datasets\animal_alive_yolo26_det_fullbox
+
+# Rebuild the prepared YOLO detection dataset from scratch.
+# Leave false for normal reruns; set true after changing split ratios or source data.
+regenerate_dataset: false
+link_method: hardlink
+
+train_ratio: 0.70
+val_ratio: 0.15
+test_ratio: 0.15
+seed: 42
+
+# Normal detection checkpoint, not -seg and not -cls.
+model_name: yolo26n.pt
+
+# Training settings, based on the style of the studio project YOLO runs.
+epochs: 100
+patience: 25
+batch_size: 16
+image_size: 512
+num_workers: 4
+
+# Set device to 0 for GPU, cpu for CPU, or "" for Ultralytics auto.
+device: 0
+amp: true
+cache: false
+resume: false
+
+# Augmentation / optimizer knobs. Empty values are ignored by the script.
+optimizer:
+lr0:
+lrf:
+weight_decay:
+warmup_epochs:
+cos_lr:
+
+mosaic: 0.0
+close_mosaic: 10
+mixup: 0.0
+copy_paste: 0.0
+degrees: 5
+translate: 0.05
+scale: 0.25
+fliplr: 0.5
+hsv_h: 0.01
+hsv_s: 0.35
+hsv_v: 0.25
+
+# Runs are saved under checkpoints_root/<model_name_without_extension>/run N <datum>
+checkpoints_root: checkpoints/detection_model
+run_name: ""
