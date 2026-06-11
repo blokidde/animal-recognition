@@ -1,0 +1,55 @@
+[project]
+name = "new-animal-model"
+version = "0.1.0"
+description = "Animal image classification/detection experiments with YOLO."
+readme = "Readme.md"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "ultralytics>=8.3.155",
+    "torch",
+    "torchvision",
+    "opencv-python>=4.11.0",
+    "pillow>=11.2.1",
+    "numpy>=2.3.0",
+    "pandas>=2.2.0",
+    "pyyaml>=6.0.0",
+    "tqdm>=4.67.0",
+    "matplotlib>=3.10.0",
+    "scikit-learn>=1.7.0",
+    "imagehash>=4.3.2",
+    "python-dotenv>=1.1.0",
+    "google-images-search>=1.4.7",
+    "dill>=0.4.1",
+]
+
+[project.optional-dependencies]
+tensorflow = [
+    "tensorflow>=2.20.0",
+    "tensorboard>=2.20.0",
+]
+roboflow = [
+    "roboflow>=1.2.6",
+]
+dev = []
+
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cu128", marker = "sys_platform == 'win32'" },
+    { index = "pytorch-cpu", marker = "sys_platform == 'linux'" },
+    { index = "pytorch-cpu", marker = "sys_platform == 'darwin'" },
+]
+torchvision = [
+    { index = "pytorch-cu128", marker = "sys_platform == 'win32'" },
+    { index = "pytorch-cpu", marker = "sys_platform == 'linux'" },
+    { index = "pytorch-cpu", marker = "sys_platform == 'darwin'" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true

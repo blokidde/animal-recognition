@@ -7,4 +7,8 @@
 /animal_photos/.env
 /animal_photos/extra
 /esp-idf
-
+/.venv
+/.ruff_cache
+/.pytest_cache
+/.mypy_cache
+__pycache__/
