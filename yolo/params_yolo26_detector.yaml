@@ -7,7 +7,7 @@ prepared_root: D:\datasets\animal_alive_yolo26_det_fullbox
 
 # Rebuild the prepared YOLO detection dataset from scratch.
 # Leave false for normal reruns; set true after changing split ratios or source data.
-regenerate_dataset: true
+regenerate_dataset: false
 link_method: hardlink
 
 train_ratio: 0.70
@@ -20,14 +20,17 @@ seed: 42
 oversample_train_classes: true
 oversample_target_train_images: 350
 oversample_max_extra_copies: 5
+
 # Normal detection checkpoint, not -seg and not -cls.
+# This starts a fresh run from the YOLO26 nano pretrained weights.
 model_name: yolo26n.pt
 
-# Training settings, based on the style of the studio project YOLO runs.
-epochs: 100
-patience: 64
+# Training settings based on run 1 11 juni, with longer full training.
+epochs: 150
+patience: 150
 image_size: 640
-num_workers: 5
+batch_size: 48
+num_workers: 4
 
 # Set device to 0 for GPU, cpu for CPU, or "" for Ultralytics auto.
 device: 0
@@ -35,14 +38,15 @@ amp: true
 cache: false
 resume: false
 
-# Augmentation / optimizer knobs. Empty values are ignored by the script.
-optimizer:
-lr0:
-lrf:
-weight_decay:
-warmup_epochs:
-cos_lr:
+# Optimizer / LR settings from run 1 args.yaml.
+optimizer: auto
+lr0: 0.01
+lrf: 0.01
+weight_decay: 0.0005
+warmup_epochs: 3.0
+cos_lr: false
 
+# Augmentation settings from run 1 args.yaml.
 mosaic: 0.0
 close_mosaic: 10
 mixup: 0.0

@@ -101,20 +101,21 @@ def model_output_folder_name(model_name: str) -> str:
 
 def format_dutch_date_label(day_value: date | None = None) -> str:
     current_day = day_value or date.today()
-    return f"{current_day.day} {DUTCH_MONTH_NAMES[current_day.month]}"
+    return f"{current_day.day}-{current_day.month}-{str(current_day.year)[-2:]}"
 
 
 def get_next_run_name(project_dir: Path, date_label: str) -> str:
     project_dir.mkdir(parents=True, exist_ok=True)
-    pattern = re.compile(rf"^run (\d+) {re.escape(date_label)}$")
+    new_pattern = re.compile(rf"^run {re.escape(date_label)} (\d+)$")
+    old_pattern = re.compile(rf"^run (\d+) {re.escape(date_label)}$")
     max_run = 0
     for path in project_dir.iterdir():
         if not path.is_dir():
             continue
-        match = pattern.match(path.name)
+        match = new_pattern.match(path.name) or old_pattern.match(path.name)
         if match:
             max_run = max(max_run, int(match.group(1)))
-    return f"run {max_run + 1} {date_label}"
+    return f"run {date_label} {max_run + 1}"
 
 
 def list_species_images(source_root: Path) -> dict[str, list[Path]]:
