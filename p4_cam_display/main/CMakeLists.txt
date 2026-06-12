@@ -11,7 +11,6 @@ idf_component_register(
     esp_system
     example_video_common
     esp_hw_support
-    human_face_detect
     esp_driver_isp
 )
 
