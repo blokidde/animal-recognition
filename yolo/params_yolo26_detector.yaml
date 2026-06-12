@@ -1,9 +1,9 @@
-# YOLO26 normal detection training on the DeepFaune-cropped animal dataset.
-# Each cropped image gets one YOLO bbox label covering the full image:
-# <class_id> 0.5 0.5 1.0 1.0
+# YOLO26 normal detection training on original iNaturalist images with DeepFaune pseudo-bboxes.
+# DeepFaune provides the bbox; this model learns the species classes on the normal photos.
 
-source_root: D:\datasets\animal_alive_deepfaune_top500\cropped_dataset
-prepared_root: D:\datasets\animal_alive_yolo26_det_fullbox
+dataset_mode: deepfaune_boxes
+metadata_csv: D:\datasets\animal_alive_deepfaune_top500\_metadata\selected_images.csv
+prepared_root: D:\datasets\animal_alive_yolo26_det_deepfaune_boxes
 
 # Rebuild the prepared YOLO detection dataset from scratch.
 # Leave false for normal reruns; set true after changing split ratios or source data.
@@ -15,6 +15,45 @@ val_ratio: 0.15
 test_ratio: 0.15
 seed: 42
 
+# Display names YOLO will show in metrics and predictions.
+# Labels keep the same stable class IDs; this only changes readable names.
+class_name_map:
+  Alopochen_aegyptiaca: Egyptian Goose
+  Anas_clypeata: Northern Shoveler
+  Anas_crecca: Eurasian Teal
+  Anas_penelope: Eurasian Wigeon
+  Anas_platyrhynchos: Mallard
+  Anas_querquedula: Garganey
+  Anser_albifrons: Greater White-fronted Goose
+  Anser_fabalis: Bean Goose
+  Aythya_ferina: Common Pochard
+  Branta_canadensis: Canada Goose
+  Branta_leucopsis: Barnacle Goose
+  Branta_ruficollis: Red-breasted Goose
+  Canis_lupus: Gray Wolf
+  Capreolus_capreolus: Roe Deer
+  Castor_fiber: Eurasian Beaver
+  Cervus_elaphus: Red Deer
+  Dama_dama: Fallow Deer
+  Lepus_europaeus: European Hare
+  Lutra_lutra: Eurasian Otter
+  Lynx_lynx: Eurasian Lynx
+  Martes_foina: Beech Marten
+  Martes_martes: European Pine Marten
+  Meles_meles: European Badger
+  Mustela_erminea: Stoat
+  Mustela_nivalis: Least Weasel
+  Mustela_putorius: European Polecat
+  Nyctereutes_procyonoides: Raccoon Dog
+  Oryctolagus_cuniculus: European Rabbit
+  Phasianus_colchicus: Common Pheasant
+  Procyon_lotor: Common Raccoon
+  Rupicapra_rupicapra: Northern Chamois
+  Sus_scrofa: Wild Boar
+  Tadorna_tadorna: Common Shelduck
+  Ursus_arctos: Brown Bear
+  Vulpes_vulpes: Red Fox
+
 # Balance class weight in training by duplicating minority-class train images.
 # Validation/test are not oversampled, so metrics stay honest.
 oversample_train_classes: true
@@ -22,7 +61,6 @@ oversample_target_train_images: 350
 oversample_max_extra_copies: 5
 
 # Normal detection checkpoint, not -seg and not -cls.
-# This starts a fresh run from the YOLO26 nano pretrained weights.
 model_name: yolo26n.pt
 
 # Training settings based on run 1 11 juni, with longer full training.
