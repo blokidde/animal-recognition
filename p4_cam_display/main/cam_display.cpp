@@ -1,5 +1,4 @@
 // cam_display.cpp — ESP32-P4 + OV5647 (ESP-Video V4L2) → GC9A01 240x240 SPI LCD
-// Met ESP-DL (ESP-WHO) HumanFaceDetect bounding boxes overlay.
 //
 // IDF 5.5.x
 
@@ -13,8 +12,6 @@
 #include <unistd.h>
 #include <stdint.h>
 #include <errno.h>
-#include <vector>
-#include <algorithm>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -37,10 +34,6 @@
 // -------- ESP-Video / V4L2 ----------
 #include "example_video_common.h"
 #include <linux/videodev2.h>
-
-// -------- ESP-DL / ESP-WHO (face detect) ----------
-#include "dl_image.hpp"          // img_t + utils
-#include "human_face_detect.hpp" // HumanFaceDetect (MSR01-achtig)
 
 // logging tag
 static const char *TAG = "P4_CAM_GC9A01_MIN_FAST_SAFE";
@@ -168,104 +161,6 @@ static void build_map_q16(int *map, int outN, int src_start, int srcN)
     {
         map[i] = src_start + (int)(acc >> 16);
         acc += inc;
-    }
-}
-
-// ---- RGB helpers for overlays ----
-static inline uint16_t rgb565_swapped(uint8_t r, uint8_t g, uint8_t b)
-{
-    uint16_t c = (uint16_t)(((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3));
-    return bswap16(c);
-}
-static inline void fill_run16(uint16_t *p, uint16_t v, int n)
-{
-    for (int i = 0; i < n; i++)
-        p[i] = v;
-}
-static void draw_rect_rgb565(uint16_t *fb, int W, int H,
-                             int x1, int y1, int x2, int y2,
-                             uint16_t col, int thickness = 2)
-{
-    x1 = clampi(x1, 0, W - 1);
-    y1 = clampi(y1, 0, H - 1);
-    x2 = clampi(x2, 0, W - 1);
-    y2 = clampi(y2, 0, H - 1);
-    if (x2 < x1)
-    {
-        int t = x1;
-        x1 = x2;
-        x2 = t;
-    }
-    if (y2 < y1)
-    {
-        int t = y1;
-        y1 = y2;
-        y2 = t;
-    }
-
-    // horizontale lijnen
-    for (int t = 0; t < thickness; ++t)
-    {
-        int ytop = y1 + t;
-        if (ytop <= y2)
-            fill_run16(fb + ytop * W + x1, col, (x2 - x1 + 1));
-        int ybot = y2 - t;
-        if (ybot >= y1)
-            fill_run16(fb + ybot * W + x1, col, (x2 - x1 + 1));
-    }
-    // verticale lijnen
-    for (int y = y1; y <= y2; ++y)
-    {
-        for (int t = 0; t < thickness; ++t)
-        {
-            int xl = x1 + t;
-            if (xl <= x2)
-                fb[y * W + xl] = col;
-            int xr = x2 - t;
-            if (xr >= x1)
-                fb[y * W + xr] = col;
-        }
-    }
-}
-
-// ---- Downscale RGB565 (240x240) → RGB888 (detW x detH) ----
-static void downscale_rgb565_to_rgb888(const uint16_t *src_rgb565, int srcW, int srcH,
-                                       uint8_t *dst_rgb888, int detW, int detH)
-{
-    static int xmap[320];
-    static int ymap[320];
-    static int cached_srcW = -1;
-    static int cached_srcH = -1;
-    static int cached_detW = -1;
-    static int cached_detH = -1;
-
-    if (cached_srcW != srcW || cached_srcH != srcH || cached_detW != detW || cached_detH != detH)
-    {
-        build_map_q16(xmap, detW, 0, srcW);
-        build_map_q16(ymap, detH, 0, srcH);
-        cached_srcW = srcW;
-        cached_srcH = srcH;
-        cached_detW = detW;
-        cached_detH = detH;
-    }
-
-    int di = 0;
-    for (int dy = 0; dy < detH; ++dy)
-    {
-        const uint16_t *srow = src_rgb565 + (size_t)ymap[dy] * srcW;
-        for (int dx = 0; dx < detW; ++dx)
-        {
-            uint16_t p = bswap16(srow[xmap[dx]]);
-            int r = (p >> 11) & 0x1F;
-            r = (r * 255 + 15) / 31;
-            int g = (p >> 5) & 0x3F;
-            g = (g * 255 + 31) / 63;
-            int b = p & 0x1F;
-            b = (b * 255 + 15) / 31;
-            dst_rgb888[di++] = (uint8_t)r;
-            dst_rgb888[di++] = (uint8_t)g;
-            dst_rgb888[di++] = (uint8_t)b;
-        }
     }
 }
 
@@ -462,23 +357,7 @@ extern "C" void app_main(void)
     build_map_q16(xmap, LCD_W, x0, roi_w);
     build_map_q16(ymap, LCD_H, y0, roi_h);
 
-    // ===== Face detector: init & buffers =====
-    HumanFaceDetect face_det;     // uit human_face_detect.hpp
-    face_det.set_score_thr(0.5f); // drempel
-    face_det.set_nms_thr(0.3f);   // IoU NMS
-
-    // detecteren op 160x120 RGB888
-    static constexpr int DET_W = 160;
-    static constexpr int DET_H = 120;
-    uint8_t *det_rgb = (uint8_t *)heap_caps_malloc(DET_W * DET_H * 3, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-    configASSERT(det_rgb);
-
-    // cache
-    std::vector<dl::detect::result_t> last_faces;
-    const int DETECT_EVERY_N = 5;
-    int detect_countdown = 0;
     int yield_countdown = 30;
-    last_faces.reserve(8);
 
     // ===== FPS & timings =====
     uint64_t t_fps0 = esp_timer_get_time();
@@ -526,45 +405,6 @@ extern "C" void app_main(void)
         }
         uint64_t t1 = esp_timer_get_time();
 
-        // === Face detect 1x per N frames ===
-        if (detect_countdown <= 0)
-        {
-            detect_countdown = DETECT_EVERY_N;
-
-            // 240x240 RGB565 (dst) → 160x120 RGB888 (det_rgb)
-            downscale_rgb565_to_rgb888(dst, LCD_W, LCD_H, det_rgb, DET_W, DET_H);
-
-            // dl::image::img_t vullen — alleen data/width/height bestaan in jouw versie
-            dl::image::img_t det_img{};
-            det_img.data = det_rgb;
-            det_img.width = DET_W;
-            det_img.height = DET_H;
-            // geen det_img.channel / det_img.stride zetten!
-
-            // run detector (HumanFaceDetect::run) → std::list<dl::detect::result_t>
-            auto faces_list = face_det.run(det_img);
-            last_faces.assign(faces_list.begin(), faces_list.end()); // list → vector cache
-        }
-        --detect_countdown;
-
-        // === Boxes tekenen op 240x240 ===
-        const uint16_t COL_BOX = rgb565_swapped(255, 32, 32); // rood
-        for (const auto &f : last_faces)
-        {
-            // f.box = [x, y, w, h] op DET_W x DET_H
-            int x = (int)f.box[0];
-            int y = (int)f.box[1];
-            int w = (int)f.box[2];
-            int h = (int)f.box[3];
-
-            int x0b = (x * LCD_W) / DET_W;
-            int y0b = (y * LCD_H) / DET_H;
-            int x1b = ((x + w) * LCD_W) / DET_W;
-            int y1b = ((y + h) * LCD_H) / DET_H;
-
-            draw_rect_rgb565(dst, LCD_W, LCD_H, x0b, y0b, x1b, y1b, COL_BOX, 2);
-        }
-
         // === DMA submit ===
         if (dma_active)
         {
@@ -597,8 +437,8 @@ extern "C" void app_main(void)
         {
             double secs = (now - t_fps0) / 1000000.0;
             double fps = fps_frames / secs;
-            ESP_LOGI(TAG, "FPS: %.1f | scale: %.2f ms | submit: %.2f ms (N=%d)",
-                     fps, avg_scale_ms, avg_submit_ms, DETECT_EVERY_N);
+            ESP_LOGI(TAG, "FPS: %.1f | scale: %.2f ms | submit: %.2f ms",
+                     fps, avg_scale_ms, avg_submit_ms);
             fps_frames = 0;
             t_fps0 = now;
         }
