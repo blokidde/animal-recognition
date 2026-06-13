@@ -64,8 +64,8 @@ oversample_max_extra_copies: 5
 model_name: yolo26n.pt
 
 # Training settings based on run 1 11 juni, with longer full training.
-epochs: 150
-patience: 150
+epochs: 500
+patience: 500
 image_size: 640
 batch_size: 48
 num_workers: 4
