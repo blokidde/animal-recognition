@@ -1,0 +1,89 @@
+﻿# ResNet18 species classifier trained on DeepFaune animal crops.
+# The detector/classifier video pipeline can use the resulting best.pt checkpoint.
+
+source_root: D:\datasets\animal_alive_deepfaune_top500\cropped_dataset
+prepared_root: D:\datasets\animal_alive_classifier_crops_resnet18_384
+regenerate_dataset: false
+link_method: hardlink
+
+train_ratio: 0.70
+val_ratio: 0.15
+test_ratio: 0.15
+seed: 42
+
+# Display names used in metrics and video overlays.
+class_name_map:
+  Alopochen_aegyptiaca: Egyptian Goose
+  Anas_clypeata: Northern Shoveler
+  Anas_crecca: Eurasian Teal
+  Anas_penelope: Eurasian Wigeon
+  Anas_platyrhynchos: Mallard
+  Anas_querquedula: Garganey
+  Anser_albifrons: Greater White-fronted Goose
+  Anser_fabalis: Bean Goose
+  Aythya_ferina: Common Pochard
+  Branta_canadensis: Canada Goose
+  Branta_leucopsis: Barnacle Goose
+  Branta_ruficollis: Red-breasted Goose
+  Canis_lupus: Gray Wolf
+  Capreolus_capreolus: Roe Deer
+  Castor_fiber: Eurasian Beaver
+  Cervus_elaphus: Red Deer
+  Dama_dama: Fallow Deer
+  Lepus_europaeus: European Hare
+  Lutra_lutra: Eurasian Otter
+  Lynx_lynx: Eurasian Lynx
+  Martes_foina: Beech Marten
+  Martes_martes: European Pine Marten
+  Meles_meles: European Badger
+  Mustela_erminea: Stoat
+  Mustela_nivalis: Least Weasel
+  Mustela_putorius: European Polecat
+  Nyctereutes_procyonoides: Raccoon Dog
+  Oryctolagus_cuniculus: European Rabbit
+  Phasianus_colchicus: Common Pheasant
+  Procyon_lotor: Common Raccoon
+  Rupicapra_rupicapra: Northern Chamois
+  Sus_scrofa: Wild Boar
+  Tadorna_tadorna: Common Shelduck
+  Ursus_arctos: Brown Bear
+  Vulpes_vulpes: Red Fox
+
+model_name: resnet18
+pretrained: true
+image_size: 384
+batch_size: 48
+num_workers: 6
+epochs: 80
+patience: 20
+
+# Good default for fine-tuning pretrained ResNet18.
+optimizer: adamw
+lr: 0.0003
+backbone_lr: 0.00008
+weight_decay: 0.01
+label_smoothing: 0.05
+warmup_epochs: 3
+min_lr_factor: 0.02
+
+# Class imbalance handling. The source is mostly balanced, but rare classes still get help.
+use_weighted_sampler: true
+use_class_weighted_loss: true
+
+# Augmentation: enough for camera-trap/video robustness, not so heavy that subtle species details disappear.
+random_resized_crop_scale_min: 0.72
+random_resized_crop_scale_max: 1.0
+horizontal_flip: 0.5
+color_jitter_brightness: 0.25
+color_jitter_contrast: 0.25
+color_jitter_saturation: 0.18
+color_jitter_hue: 0.03
+gray_prob: 0.04
+gaussian_blur_prob: 0.08
+random_erasing_prob: 0.08
+
+amp: true
+device: 0
+
+checkpoints_root: checkpoints/classification_model
+run_name: ""

@@ -1,0 +1,10 @@
+{
+  "detector": "yolo26n.pt",
+  "classifier": "D:\\MachineLearning\\new_animal_model\\checkpoints\\classification_model\\resnet18\\run 13-6-26 1\\weights\\best.pt",
+  "source": "D:\\MachineLearning\\new_animal_model\\zwijnen_close.mp4",
+  "output": "D:\\MachineLearning\\new_animal_model\\video_predictions\\zwijnen_close_detector_yolo26n_resnet18_1.mp4",
+  "classify_every": 3,
+  "crop_margin": 0.15,
+  "det_conf": 0.25,
+  "det_iou": 0.5
+}
