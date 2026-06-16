@@ -1,0 +1,85 @@
+﻿# ResNet18 species classifier trained on YOLO detector crops from normal iNaturalist images.
+# This better matches the runtime detector+classifier video pipeline than DeepFaune-perfect crops.
+
+source_root: D:\datasets\animal_alive_yolo26_detector_crops_top3\crops
+prepared_root: D:\datasets\animal_alive_classifier_yolo26_crops_resnet18_448
+regenerate_dataset: true
+link_method: hardlink
+
+train_ratio: 0.70
+val_ratio: 0.15
+test_ratio: 0.15
+seed: 42
+
+class_name_map:
+  Alopochen_aegyptiaca: Egyptian Goose
+  Anas_clypeata: Northern Shoveler
+  Anas_crecca: Eurasian Teal
+  Anas_penelope: Eurasian Wigeon
+  Anas_platyrhynchos: Mallard
+  Anas_querquedula: Garganey
+  Anser_albifrons: Greater White-fronted Goose
+  Anser_fabalis: Bean Goose
+  Aythya_ferina: Common Pochard
+  Branta_canadensis: Canada Goose
+  Branta_leucopsis: Barnacle Goose
+  Branta_ruficollis: Red-breasted Goose
+  Canis_lupus: Gray Wolf
+  Capreolus_capreolus: Roe Deer
+  Castor_fiber: Eurasian Beaver
+  Cervus_elaphus: Red Deer
+  Dama_dama: Fallow Deer
+  Lepus_europaeus: European Hare
+  Lutra_lutra: Eurasian Otter
+  Lynx_lynx: Eurasian Lynx
+  Martes_foina: Beech Marten
+  Martes_martes: European Pine Marten
+  Meles_meles: European Badger
+  Mustela_erminea: Stoat
+  Mustela_nivalis: Least Weasel
+  Mustela_putorius: European Polecat
+  Nyctereutes_procyonoides: Raccoon Dog
+  Oryctolagus_cuniculus: European Rabbit
+  Phasianus_colchicus: Common Pheasant
+  Procyon_lotor: Common Raccoon
+  Rupicapra_rupicapra: Northern Chamois
+  Sus_scrofa: Wild Boar
+  Tadorna_tadorna: Common Shelduck
+  Ursus_arctos: Brown Bear
+  Vulpes_vulpes: Red Fox
+
+model_name: resnet18
+pretrained: true
+image_size: 448
+batch_size: 32
+num_workers: 6
+epochs: 70
+patience: 18
+
+optimizer: adamw
+lr: 0.00022
+backbone_lr: 0.00006
+weight_decay: 0.01
+label_smoothing: 0.06
+warmup_epochs: 3
+min_lr_factor: 0.03
+
+use_weighted_sampler: true
+use_class_weighted_loss: true
+
+random_resized_crop_scale_min: 0.76
+random_resized_crop_scale_max: 1.0
+horizontal_flip: 0.5
+color_jitter_brightness: 0.22
+color_jitter_contrast: 0.22
+color_jitter_saturation: 0.15
+color_jitter_hue: 0.025
+gray_prob: 0.04
+gaussian_blur_prob: 0.06
+random_erasing_prob: 0.06
+
+amp: true
+device: 0
+
+checkpoints_root: checkpoints/classification_model
+run_name: ""

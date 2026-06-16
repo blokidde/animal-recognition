@@ -13,6 +13,12 @@ from dataclasses import asdict, dataclass
 from datetime import date
 from pathlib import Path
 from typing import Any
+try:
+    from windows_platform_patch import patch_windows_platform_wmi
+except ImportError:
+    from classifier.windows_platform_patch import patch_windows_platform_wmi
+
+patch_windows_platform_wmi()
 
 import torch
 import torch.nn as nn
@@ -507,8 +513,14 @@ def train_classifier(config: dict[str, Any], prepared_root: Path, resume_path: P
     checkpoints_root = resolve_path(config.get("checkpoints_root", "checkpoints/classification_model"))
     model_name = str(config.get("model_name", "resnet18"))
     project_dir = checkpoints_root / model_name
-    run_name = str(config.get("run_name", "")).strip() or get_next_run_name(project_dir, format_date_label())
-    run_dir = project_dir / run_name
+    configured_run_name = str(config.get("run_name", "")).strip()
+    if resume_path is not None and not configured_run_name:
+        resume_path = resume_path.resolve()
+        run_dir = resume_path.parent.parent
+        run_name = run_dir.name
+    else:
+        run_name = configured_run_name or get_next_run_name(project_dir, format_date_label())
+        run_dir = project_dir / run_name
     weights_dir = run_dir / "weights"
     run_dir.mkdir(parents=True, exist_ok=True)
     weights_dir.mkdir(parents=True, exist_ok=True)
@@ -616,3 +628,5 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+

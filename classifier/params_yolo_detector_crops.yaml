@@ -1,0 +1,32 @@
+﻿# Create classifier training crops using the same YOLO bbox detector used at runtime.
+source_root: D:\datasets\animal_alive_deepfaune_top500\normal_dataset
+output_root: D:\datasets\animal_alive_yolo26_detector_crops_top3
+regenerate: false
+
+detector: yolo26n.pt
+imgsz: 640
+conf: 0.18
+iou: 0.5
+batch: 32
+chunk_size: 128
+device: 0
+
+# Keep bbox proposals that are plausibly animals in COCO. The detector class label is ignored for training labels.
+allowed_detector_classes:
+  - bird
+  - cat
+  - dog
+  - horse
+  - sheep
+  - cow
+  - elephant
+  - bear
+  - zebra
+  - giraffe
+
+crop_margin: 0.18
+max_crops_per_image: 3
+min_area_ratio: 0.001
+jpeg_quality: 95
+
+
